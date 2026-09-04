@@ -19,6 +19,19 @@ namespace OutlookJunkRescuer
         KeepLatest
     }
 
+    public enum DuplicateDestination
+    {
+        /// <summary>
+        /// 移至专用的 Duplicate Trash 软隔离目录（Junk Archive\Duplicate Trash）
+        /// </summary>
+        DuplicateTrash,
+
+        /// <summary>
+        /// 移至 Outlook 系统自带的「已删除邮件」废件箱 (Deleted Items)
+        /// </summary>
+        DeletedItems
+    }
+
     public sealed class OwnedCopyInfo
     {
         public string EntryId { get; set; }
@@ -229,13 +242,15 @@ namespace OutlookJunkRescuer
         }
 
         /// <summary>
-        /// 保守重验证清理：对指定的重复组执行清理，将多余的副本安全移动至 Duplicate Trash 软隔离目录。
+        /// 保留重验证清理：对指定的重复组执行清理，将多余的副本安全移动至指定目标文件夹（Duplicate Trash 软隔离目录或废件箱）。
         /// 遵循绝对铁律：Never reduce 1 -> 0（绝不导致该邮件在归档中清零）。
         /// </summary>
         public CleanupResult CleanDuplicates(
             Outlook.MAPIFolder archiveFolder,
+            string storeId,
             List<DuplicateGroup> groups,
             DuplicateRetentionPolicy policy,
+            DuplicateDestination destination,
             Action<int, int> progressCallback)
         {
             var result = new CleanupResult
@@ -246,12 +261,37 @@ namespace OutlookJunkRescuer
             if (archiveFolder == null || groups == null || groups.Count == 0)
                 return result;
 
-            Outlook.MAPIFolder duplicateTrash = null;
+            Outlook.MAPIFolder targetFolder = null;
+            Outlook.Store store = null;
             try
             {
-                duplicateTrash = _archiveWriter.GetOrCreateDuplicateTrashFolder(archiveFolder);
-                if (duplicateTrash == null)
-                    throw new InvalidOperationException("无法解析或创建 Duplicate Trash 目录。");
+                if (destination == DuplicateDestination.DeletedItems)
+                {
+                    try
+                    {
+                        if (!string.IsNullOrEmpty(storeId))
+                        {
+                            store = _session.GetStoreFromID(storeId);
+                            targetFolder = store?.GetDefaultFolder(Outlook.OlDefaultFolders.olFolderDeletedItems);
+                        }
+                    }
+                    catch
+                    {
+                        // Fallback
+                    }
+
+                    if (targetFolder == null)
+                    {
+                        targetFolder = _session.GetDefaultFolder(Outlook.OlDefaultFolders.olFolderDeletedItems);
+                    }
+                }
+                else
+                {
+                    targetFolder = _archiveWriter.GetOrCreateDuplicateTrashFolder(archiveFolder);
+                }
+
+                if (targetFolder == null)
+                    throw new InvalidOperationException("无法解析或获取目标隔离文件夹。");
 
                 int currentGroupIndex = 0;
 
@@ -354,14 +394,14 @@ namespace OutlookJunkRescuer
                                     break;
                                 }
 
-                                // 安全移动到 Duplicate Trash 软隔离目录
-                                loserItem.Move(duplicateTrash);
+                                // 安全移动到目标隔离目录（Duplicate Trash 或废件箱）
+                                loserItem.Move(targetFolder);
                                 result.MovedToTrash++;
                             }
                             catch (Exception ex)
                             {
                                 result.Failed++;
-                                Logger.Write($"[DuplicateCleaner] 移动副本 {loserCopy.EntryId} 至 Duplicate Trash 失败: {ex}");
+                                Logger.Write($"[DuplicateCleaner] 移动副本 {loserCopy.EntryId} 至目标目录失败: {ex}");
                             }
                             finally
                             {
@@ -377,7 +417,8 @@ namespace OutlookJunkRescuer
             }
             finally
             {
-                ComUtil.Release(duplicateTrash);
+                ComUtil.Release(targetFolder);
+                ComUtil.Release(store);
             }
 
             return result;

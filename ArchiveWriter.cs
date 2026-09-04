@@ -68,9 +68,12 @@ namespace OutlookJunkRescuer
             }
         }
 
-        public Outlook.MAPIFolder GetOrCreateDuplicateTrashFolder(
+        public Outlook.MAPIFolder FindDuplicateTrashFolder(
             Outlook.MAPIFolder archive)
         {
+            if (archive == null)
+                return null;
+
             Outlook.Folders folders = null;
 
             try
@@ -101,6 +104,28 @@ namespace OutlookJunkRescuer
                     }
                 }
 
+                return null;
+            }
+            finally
+            {
+                ComUtil.Release(folders);
+            }
+        }
+
+        public Outlook.MAPIFolder GetOrCreateDuplicateTrashFolder(
+            Outlook.MAPIFolder archive)
+        {
+            if (archive == null)
+                return null;
+
+            Outlook.MAPIFolder existing = FindDuplicateTrashFolder(archive);
+            if (existing != null)
+                return existing;
+
+            Outlook.Folders folders = null;
+            try
+            {
+                folders = archive.Folders;
                 Outlook.MAPIFolder created =
                     folders.Add(DuplicateTrashFolderName, Type.Missing);
 
@@ -109,6 +134,23 @@ namespace OutlookJunkRescuer
             finally
             {
                 ComUtil.Release(folders);
+            }
+        }
+
+        public bool DeleteDuplicateTrashFolder(Outlook.MAPIFolder archive)
+        {
+            Outlook.MAPIFolder trash = FindDuplicateTrashFolder(archive);
+            if (trash == null)
+                return false;
+
+            try
+            {
+                trash.Delete();
+                return true;
+            }
+            finally
+            {
+                ComUtil.Release(trash);
             }
         }
 
