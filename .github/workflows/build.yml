@@ -29,6 +29,13 @@ jobs:
           -Wait -NoNewWindow
         Write-Host "Office VSTO Build Tools installed successfully."
 
+        Write-Host "Downloading and installing Visual Studio Tools for Office (VSTO) Runtime..."
+        $vstoUrl = "https://download.microsoft.com/download/6/7/5/675DA501-1C26-4FCE-8F8D-D09D5B4EB37D/vstor_redist.exe"
+        Invoke-WebRequest -Uri $vstoUrl -OutFile "vstor_redist.exe"
+        Start-Process -FilePath ".\vstor_redist.exe" -ArgumentList "/q /norestart" -Wait
+        Remove-Item ".\vstor_redist.exe" -Force -ErrorAction SilentlyContinue
+        Write-Host "VSTO Runtime installed successfully."
+
     # 2. 设置 MSBuild 工具链
     - name: Setup MSBuild
       uses: microsoft/setup-msbuild@v2
