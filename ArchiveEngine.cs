@@ -20,6 +20,9 @@ namespace OutlookJunkRescuer
 
         public static SweepStatistics Statistics { get; } = new SweepStatistics();
 
+        private readonly HashSet<string> _activeOperations =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         private readonly Outlook.NameSpace _session;
         private readonly OutlookSourceReader _source;
         private readonly OwnedCopyLocator _ownedCopies;
@@ -37,8 +40,26 @@ namespace OutlookJunkRescuer
             _archiveWriter = new ArchiveWriter();
         }
 
+        public Outlook.MAPIFolder ResolveArchiveFolder(Outlook.Store store)
+        {
+            Outlook.MAPIFolder inbox = null;
+            try
+            {
+                inbox = store.GetDefaultFolder(Outlook.OlDefaultFolders.olFolderInbox);
+                if (inbox == null)
+                    return null;
+
+                return _archiveWriter.GetOrCreateArchiveFolder(inbox);
+            }
+            finally
+            {
+                ComUtil.Release(inbox);
+            }
+        }
+
         public void RunStartupSweep()
         {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             Outlook.Accounts accounts = null;
             int totalVisible = 0;
             int totalArchived = 0;
@@ -117,9 +138,11 @@ namespace OutlookJunkRescuer
                     }
                 }
 
+                sw.Stop();
                 lock (Statistics)
                 {
                     Statistics.LastSweepTime = DateTime.Now;
+                    Statistics.LastSweepDurationMs = sw.ElapsedMilliseconds;
                     Statistics.LastVisibleCount = totalVisible;
                     Statistics.LastArchivedCount = totalArchived;
                     Statistics.LastRecoveredCount = totalRecovered;
@@ -177,33 +200,56 @@ namespace OutlookJunkRescuer
 
                 visible = items.Count;
 
-                var groups = items
+                var itemsBySearchKey = items
                     .GroupBy(x => x.SearchKeyHex, StringComparer.Ordinal)
-                    .ToList();
+                    .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
 
-                foreach (var group in groups)
+                // Ensure startup and reconciliation sweeps are driven by durable journal state:
+                // Reconcile union of currently visible Junk SearchKeys and any non-terminal states
+                // (Pending, CopyCreated, Moving, Uncertain) recorded in SQLite.
+                List<MessageState> nonTerminalStates = _state.GetNonTerminalStates(smtp);
+
+                var allSearchKeys = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var k in itemsBySearchKey.Keys)
+                {
+                    allSearchKeys.Add(k);
+                }
+                foreach (var s in nonTerminalStates)
+                {
+                    allSearchKeys.Add(s.SearchKeyHex);
+                }
+
+                foreach (var searchKey in allSearchKeys)
                 {
                     try
                     {
+                        List<SourceMessageDescriptor> candidates;
+                        if (!itemsBySearchKey.TryGetValue(searchKey, out candidates))
+                        {
+                            candidates = new List<SourceMessageDescriptor>();
+                        }
+
                         ProcessLogicalMessage(
-                            group.ToList(),
+                            candidates,
                             archive,
                             ref archived,
                             ref recovered,
                             ref uncertain,
-                            ref skipped);
+                            ref skipped,
+                            smtp,
+                            searchKey);
                     }
                     catch (Exception ex)
                     {
                         failed++;
                         Logger.Write(
-                            $"[{smtp}] SearchKey {group.Key}: {ex}");
+                            $"[{smtp}] SearchKey {searchKey}: {ex}");
                     }
                 }
 
                 Logger.Write(
                     $"[{smtp}] sweep: visible={items.Count}, " +
-                    $"logical={groups.Count}, archived={archived}, " +
+                    $"reconciledKeys={allSearchKeys.Count}, archived={archived}, " +
                     $"recovered={recovered}, uncertain={uncertain}, " +
                     $"skipped={skipped}, failed={failed}");
             }
@@ -219,15 +265,11 @@ namespace OutlookJunkRescuer
             object rawItem,
             string accountSmtp,
             string storeId,
-            Outlook.MAPIFolder junkFolder)
+            Outlook.MAPIFolder archiveFolder)
         {
             var descriptor = _source.TryReadDescriptor(accountSmtp, storeId, rawItem);
             if (descriptor == null)
                 return false;
-
-            Outlook.Store store = null;
-            Outlook.MAPIFolder inbox = null;
-            Outlook.MAPIFolder archive = null;
 
             int archived = 0;
             int recovered = 0;
@@ -236,23 +278,15 @@ namespace OutlookJunkRescuer
 
             try
             {
-                store = _session.GetStoreFromID(storeId);
-                if (store == null)
-                    return false;
-
-                inbox = store.GetDefaultFolder(Outlook.OlDefaultFolders.olFolderInbox);
-                if (inbox == null)
-                    return false;
-
-                archive = _archiveWriter.GetOrCreateArchiveFolder(inbox);
-
                 ProcessLogicalMessage(
                     new List<SourceMessageDescriptor> { descriptor },
-                    archive,
+                    archiveFolder,
                     ref archived,
                     ref recovered,
                     ref uncertain,
-                    ref skipped);
+                    ref skipped,
+                    accountSmtp,
+                    descriptor.SearchKeyHex);
 
                 if (archived > 0)
                 {
@@ -267,11 +301,10 @@ namespace OutlookJunkRescuer
 
                 return false;
             }
-            finally
+            catch (Exception ex)
             {
-                ComUtil.Release(archive);
-                ComUtil.Release(inbox);
-                ComUtil.Release(store);
+                Logger.Write($"[{accountSmtp}] Error in ProcessSingleItem for {descriptor.SearchKeyHex}: {ex}");
+                return false;
             }
         }
 
@@ -281,41 +314,34 @@ namespace OutlookJunkRescuer
             ref int archived,
             ref int recovered,
             ref int uncertain,
-            ref int skipped)
+            ref int skipped,
+            string accountSmtp,
+            string searchKeyHex)
         {
-            if (candidates == null || candidates.Count == 0)
+            if (string.IsNullOrEmpty(accountSmtp) || string.IsNullOrEmpty(searchKeyHex))
                 return;
 
-            string accountSmtp = candidates[0].AccountSmtp;
-            string searchKey = candidates[0].SearchKeyHex;
-
-            MessageState state = _state.Get(accountSmtp, searchKey);
-
-            if (state == null)
+            string activeKey = accountSmtp + ":" + searchKeyHex;
+            lock (_activeOperations)
             {
-                // No durable state exists, so this is a fresh replayable operation.
-                SourceMessageDescriptor source = candidates[0];
-                state = _state.BeginOrGet(source);
-
-                ProcessPending(
-                    candidates,
-                    source,
-                    state,
-                    archive,
-                    ref archived,
-                    ref recovered);
-                return;
+                if (!_activeOperations.Add(activeKey))
+                {
+                    Logger.Write($"[{accountSmtp}] Operation already in progress for {searchKeyHex}; skipped re-entrant call.");
+                    skipped++;
+                    return;
+                }
             }
 
-            switch (state.State)
+            try
             {
-                case ArchiveState.Pending:
-                {
-                    // Pending is the only existing state that may create a new
-                    // copy. Re-identify the exact source before using Copy().
-                    SourceMessageDescriptor source =
-                        ChooseReadOnlySource(candidates, state);
+                MessageState state = _state.Get(accountSmtp, searchKeyHex);
 
+                if (state == null)
+                {
+                    if (candidates == null || candidates.Count == 0)
+                        return;
+
+                    SourceMessageDescriptor source = candidates[0];
                     state = _state.BeginOrGet(source);
 
                     ProcessPending(
@@ -328,51 +354,83 @@ namespace OutlookJunkRescuer
                     return;
                 }
 
-                case ArchiveState.CopyCreated:
-                    if (!RecoverOwnedCopyOrWait(
-                        candidates,
-                        state,
-                        archive,
-                        true,
-                        ref recovered))
+                switch (state.State)
+                {
+                    case ArchiveState.Pending:
                     {
-                        uncertain++;
-                        LogUncertain(state, "copy-created object is not currently provable/visible");
+                        if (candidates == null || candidates.Count == 0)
+                        {
+                            skipped++;
+                            return;
+                        }
+
+                        SourceMessageDescriptor source =
+                            ChooseReadOnlySource(candidates, state);
+
+                        state = _state.BeginOrGet(source);
+
+                        ProcessPending(
+                            candidates,
+                            source,
+                            state,
+                            archive,
+                            ref archived,
+                            ref recovered);
+                        return;
                     }
-                    return;
 
-                case ArchiveState.Moving:
-                    if (!RecoverOwnedCopyOrWait(
-                        candidates,
-                        state,
-                        archive,
-                        true,
-                        ref recovered))
-                    {
-                        uncertain++;
-                        LogUncertain(state, "Move outcome is not currently observable");
-                    }
-                    return;
+                    case ArchiveState.CopyCreated:
+                        if (!RecoverOwnedCopyOrWait(
+                            candidates ?? new List<SourceMessageDescriptor>(),
+                            state,
+                            archive,
+                            true,
+                            ref recovered))
+                        {
+                            uncertain++;
+                            LogUncertain(state, "copy-created object is not currently provable/visible");
+                        }
+                        return;
 
-                case ArchiveState.Uncertain:
-                    if (!RecoverLegacyUncertain(
-                        candidates,
-                        state,
-                        archive,
-                        ref recovered))
-                    {
-                        uncertain++;
-                        LogUncertain(state, "legacy v3 Pending outcome cannot be proven");
-                    }
-                    return;
+                    case ArchiveState.Moving:
+                        if (!RecoverOwnedCopyOrWait(
+                            candidates ?? new List<SourceMessageDescriptor>(),
+                            state,
+                            archive,
+                            true,
+                            ref recovered))
+                        {
+                            uncertain++;
+                            LogUncertain(state, "Move outcome is not currently observable");
+                        }
+                        return;
 
-                case ArchiveState.Archived:
-                    skipped++;
-                    return;
+                    case ArchiveState.Uncertain:
+                        if (!RecoverLegacyUncertain(
+                            candidates ?? new List<SourceMessageDescriptor>(),
+                            state,
+                            archive,
+                            ref recovered))
+                        {
+                            uncertain++;
+                        }
+                        return;
 
-                default:
-                    throw new InvalidOperationException(
-                        "Unknown archive state: " + state.State);
+                    case ArchiveState.Archived:
+                        skipped++;
+                        return;
+
+                    default:
+                        throw new InvalidOperationException(
+                            "Unknown archive state: " + state.State);
+                }
+            }
+            finally
+            {
+                lock (_activeOperations)
+                {
+                    _activeOperations.Remove(activeKey);
+                }
             }
         }
 

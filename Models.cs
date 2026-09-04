@@ -85,6 +85,7 @@ namespace OutlookJunkRescuer
     internal sealed class SweepStatistics
     {
         public System.DateTime LastSweepTime { get; set; } = System.DateTime.MinValue;
+        public long LastSweepDurationMs { get; set; }
         public int LastVisibleCount { get; set; }
         public int LastArchivedCount { get; set; }
         public int LastRecoveredCount { get; set; }

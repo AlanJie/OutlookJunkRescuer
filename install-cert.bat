@@ -10,7 +10,20 @@ if not exist "OutlookJunkRescuer.cer" (
 )
 
 certutil -addstore -user Root OutlookJunkRescuer.cer >nul 2>&1
+if %errorlevel% neq 0 (
+    echo [错误] 导入“受信任的根证书颁发机构”失败，错误代码: %errorlevel%
+    echo 请确认是否已使用管理员权限运行此脚本。
+    pause
+    exit /b %errorlevel%
+)
+
 certutil -addstore -user TrustedPublisher OutlookJunkRescuer.cer >nul 2>&1
+if %errorlevel% neq 0 (
+    echo [错误] 导入“受信任的发布者”失败，错误代码: %errorlevel%
+    echo 请确认是否已使用管理员权限运行此脚本。
+    pause
+    exit /b %errorlevel%
+)
 
 echo ========================================================
 echo  [成功] 证书已成功导入“受信任的根证书颁发机构”与“受信任的发布者”！

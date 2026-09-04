@@ -169,9 +169,12 @@ Standard deployment managed directly by Office VSTO runtime with full Windows Se
 3. Double-click `OutlookJunkRescuer.vsto` and click **Install** in the Microsoft Office prompt.
 4. **Uninstall**: Remove directly from Windows **Settings > Apps > Installed apps** (or Control Panel **Programs and Features**).
 
-### Option 2: Portable Registration (`install.bat` / Zero-Certificate Bypass)
+### Option 2: Portable Registration (`install.bat` / In-Place Registry Load)
 
-Ideal for users who prefer a portable, green installation without importing certificates into system certificate stores. This method registers the add-in using the `|vstolocal` flag under `HKCU`, instructing the VSTO runtime to load the add-in directly with local full trust.
+Ideal for users who prefer a portable, green installation without installing through ClickOnce. This method registers the add-in manifest using the `|vstolocal` flag under `HKCU`, instructing the VSTO runtime to load assemblies directly from the local folder rather than copying them into the ClickOnce cache.
+
+> [!NOTE]
+> `|vstolocal` controls the loading location (local folder vs. ClickOnce cache). Standard Office and Windows trust policies still apply. If strict group policies prevent untrusted add-ins from loading, Option 1 or trusting the solution in Outlook Trust Center is recommended.
 
 1. Download and extract `OutlookJunkRescuer-Portable-Bat.zip` to a permanent folder (e.g. `C:\Tools\OutlookJunkRescuer`).
 2. Double-click `install.bat` to register the add-in in Current User registry.

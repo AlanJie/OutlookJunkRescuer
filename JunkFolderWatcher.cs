@@ -14,6 +14,7 @@ namespace OutlookJunkRescuer
         private readonly string _storeId;
         private readonly ArchiveEngine _engine;
         private Outlook.MAPIFolder _junkFolder;
+        private Outlook.MAPIFolder _archiveFolder;
         private Outlook.Items _junkItems;
 
         public string AccountSmtp => _accountSmtp;
@@ -23,11 +24,13 @@ namespace OutlookJunkRescuer
             string accountSmtp,
             string storeId,
             Outlook.MAPIFolder junkFolder,
+            Outlook.MAPIFolder archiveFolder,
             ArchiveEngine engine)
         {
             _accountSmtp = accountSmtp;
             _storeId = storeId;
             _junkFolder = junkFolder;
+            _archiveFolder = archiveFolder;
             _engine = engine;
 
             // Retain strong reference to Items to keep event handler alive against GC
@@ -45,16 +48,15 @@ namespace OutlookJunkRescuer
                     return;
 
                 Logger.Write($"[{_accountSmtp}] New item detected in Junk folder; triggering real-time rescue.");
-                _engine.ProcessSingleItem(item, _accountSmtp, _storeId, _junkFolder);
+                _engine.ProcessSingleItem(item, _accountSmtp, _storeId, _archiveFolder);
             }
             catch (Exception ex)
             {
                 Logger.Write($"[{_accountSmtp}] Error processing ItemAdd event: {ex}");
             }
-            finally
-            {
-                ComUtil.Release(item);
-            }
+            // NOTE: Do not call Marshal.ReleaseComObject on 'item'.
+            // The item parameter is passed by Outlook's event dispatcher.
+            // Explicitly releasing an event parameter risks invalidating Outlook's shared RCW.
         }
 
         public void Dispose()
@@ -77,6 +79,12 @@ namespace OutlookJunkRescuer
             {
                 ComUtil.Release(_junkFolder);
                 _junkFolder = null;
+            }
+
+            if (_archiveFolder != null)
+            {
+                ComUtil.Release(_archiveFolder);
+                _archiveFolder = null;
             }
         }
     }

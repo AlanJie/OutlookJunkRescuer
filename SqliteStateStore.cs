@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Data.SQLite;
 using System.IO;
 
@@ -64,6 +65,9 @@ CREATE TABLE IF NOT EXISTS message_state (
 
 CREATE INDEX IF NOT EXISTS idx_message_state_state
     ON message_state(state);
+
+CREATE INDEX IF NOT EXISTS idx_message_state_account_state
+    ON message_state(account_smtp, state);
 ");
 
                 if (!ColumnExistsUnlocked("message_state", "archive_record_key_hex"))
@@ -116,6 +120,32 @@ WHERE account_smtp = @account_smtp AND search_key_hex = @search_key_hex;";
                         return reader.Read() ? ReadState(reader) : null;
                     }
                 }
+            }
+        }
+
+        public List<MessageState> GetNonTerminalStates(string accountSmtp)
+        {
+            lock (_gate)
+            {
+                ThrowIfDisposed();
+
+                var list = new List<MessageState>();
+                using (var cmd = _connection.CreateCommand())
+                {
+                    cmd.CommandText = SelectSql + @"
+WHERE account_smtp = @account_smtp AND state IN (0, 1, 2, 4);";
+                    cmd.Parameters.AddWithValue("@account_smtp", accountSmtp);
+
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            list.Add(ReadState(reader));
+                        }
+                    }
+                }
+
+                return list;
             }
         }
 
@@ -206,13 +236,17 @@ INSERT INTO message_state (
 
                 using (var cmd = _connection.CreateCommand())
                 {
+                    // CAS: Only allow transition from Pending(0) or re-asserting CopyCreated(1).
+                    // If already advanced to Moving(2) or Archived(3), do not regress.
                     cmd.CommandText = @"
 UPDATE message_state
 SET state = @state,
     working_copy_entry_id = @entry_id,
     working_copy_record_key_hex = @record_key,
     updated_utc = @updated_utc
-WHERE account_smtp = @account_smtp AND search_key_hex = @search_key_hex;";
+WHERE account_smtp = @account_smtp 
+  AND search_key_hex = @search_key_hex
+  AND state IN (0, 1);";
 
                     cmd.Parameters.AddWithValue("@state", (int)ArchiveState.CopyCreated);
                     cmd.Parameters.AddWithValue("@entry_id", copy.EntryId);
@@ -220,7 +254,22 @@ WHERE account_smtp = @account_smtp AND search_key_hex = @search_key_hex;";
                     cmd.Parameters.AddWithValue("@updated_utc", DateTime.UtcNow.ToString("o"));
                     cmd.Parameters.AddWithValue("@account_smtp", accountSmtp);
                     cmd.Parameters.AddWithValue("@search_key_hex", searchKeyHex);
-                    RequireSingleRow(cmd.ExecuteNonQuery(), "MarkCopyCreated");
+
+                    int rows = cmd.ExecuteNonQuery();
+                    if (rows == 0)
+                    {
+                        var current = Get(accountSmtp, searchKeyHex);
+                        if (current == null)
+                            throw new InvalidOperationException($"MarkCopyCreated failed: row not found for {searchKeyHex}");
+
+                        if (current.State == ArchiveState.Moving || current.State == ArchiveState.Archived)
+                        {
+                            return; // Already advanced; ignore CAS regression safely
+                        }
+
+                        throw new InvalidOperationException(
+                            $"MarkCopyCreated CAS failed for {searchKeyHex}: current state is {current.State}");
+                    }
                 }
             }
         }
@@ -261,17 +310,36 @@ WHERE account_smtp = @account_smtp AND search_key_hex = @search_key_hex;";
 
                 using (var cmd = _connection.CreateCommand())
                 {
+                    // CAS: Only allow transition from Pending(0), CopyCreated(1), Moving(2), or Uncertain(4).
+                    // Never allow downgrading terminal Archived(3) back to Moving.
                     cmd.CommandText = @"
 UPDATE message_state
 SET state = @state,
     updated_utc = @updated_utc
-WHERE account_smtp = @account_smtp AND search_key_hex = @search_key_hex;";
+WHERE account_smtp = @account_smtp 
+  AND search_key_hex = @search_key_hex
+  AND state IN (0, 1, 2, 4);";
 
                     cmd.Parameters.AddWithValue("@state", (int)ArchiveState.Moving);
                     cmd.Parameters.AddWithValue("@updated_utc", DateTime.UtcNow.ToString("o"));
                     cmd.Parameters.AddWithValue("@account_smtp", accountSmtp);
                     cmd.Parameters.AddWithValue("@search_key_hex", searchKeyHex);
-                    RequireSingleRow(cmd.ExecuteNonQuery(), "MarkMoving");
+
+                    int rows = cmd.ExecuteNonQuery();
+                    if (rows == 0)
+                    {
+                        var current = Get(accountSmtp, searchKeyHex);
+                        if (current == null)
+                            throw new InvalidOperationException($"MarkMoving failed: row not found for {searchKeyHex}");
+
+                        if (current.State == ArchiveState.Archived)
+                        {
+                            return; // Already terminal Archived; do not regress to Moving
+                        }
+
+                        throw new InvalidOperationException(
+                            $"MarkMoving CAS failed for {searchKeyHex}: current state is {current.State}");
+                    }
                 }
             }
         }

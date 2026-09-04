@@ -10,6 +10,7 @@ namespace OutlookJunkRescuer
     public partial class ThisAddIn
     {
         private const int StartupDelayMilliseconds = 15000;
+        private const int PeriodicSweepIntervalMilliseconds = 6 * 60 * 60 * 1000; // 6 hours
 
         public static ThisAddIn Instance { get; private set; }
 
@@ -42,10 +43,7 @@ namespace OutlookJunkRescuer
             }
             catch (Exception ex)
             {
-                // State durability is required for safe operation. If SQLite or
-                // its native dependency cannot initialize, disable this run rather
-                // than operating without a journal or affecting Outlook startup.
-                Logger.Write("State store initialization failed; add-in disabled: " + ex);
+                Logger.Write("Failed to initialize state database: " + ex);
                 return;
             }
 
@@ -84,6 +82,7 @@ namespace OutlookJunkRescuer
                     Outlook.Account account = null;
                     Outlook.Store store = null;
                     Outlook.MAPIFolder junk = null;
+                    Outlook.MAPIFolder archive = null;
 
                     try
                     {
@@ -105,14 +104,20 @@ namespace OutlookJunkRescuer
                         if (junk == null)
                             continue;
 
+                        archive = _engine.ResolveArchiveFolder(store);
+                        if (archive == null)
+                            continue;
+
                         var watcher = new JunkFolderWatcher(
                             smtp.Trim().ToLowerInvariant(),
                             storeId,
                             junk,
+                            archive,
                             _engine);
 
                         _watchers.Add(watcher);
                         junk = null; // ownership transferred to watcher
+                        archive = null; // ownership transferred to watcher
                     }
                     catch (Exception ex)
                     {
@@ -120,6 +125,7 @@ namespace OutlookJunkRescuer
                     }
                     finally
                     {
+                        ComUtil.Release(archive);
                         ComUtil.Release(junk);
                         ComUtil.Release(store);
                         ComUtil.Release(account);
@@ -168,7 +174,16 @@ namespace OutlookJunkRescuer
             }
             catch (Exception ex)
             {
-                Logger.Write("Startup sweep failed: " + ex);
+                Logger.Write("Reconciliation sweep failed: " + ex);
+            }
+            finally
+            {
+                // After initial catch-up sweep, switch to periodic reconciliation
+                if (_startupTimer != null)
+                {
+                    _startupTimer.Interval = PeriodicSweepIntervalMilliseconds;
+                    _startupTimer.Start();
+                }
             }
         }
 

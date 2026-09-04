@@ -194,8 +194,11 @@ namespace OutlookJunkRescuer
             {
                 if (stats.LastSweepTime != DateTime.MinValue)
                 {
-                    _lblLastSweep.Text = $"上次全量对账: {stats.LastSweepTime:yyyy-MM-dd HH:mm:ss}";
-                    _lblSweepStats.Text = $"本次扫描成果: 发现 {stats.LastVisibleCount} 封 | 归档 {stats.LastArchivedCount} 封 | 跳过 {stats.LastSkippedCount} 封 | 失败 {stats.LastFailedCount} 封";
+                    string durationStr = stats.LastSweepDurationMs > 0
+                        ? $" (耗时 {stats.LastSweepDurationMs / 1000.0:F2} 秒)"
+                        : string.Empty;
+                    _lblLastSweep.Text = $"上次全量对账: {stats.LastSweepTime:yyyy-MM-dd HH:mm:ss}{durationStr}";
+                    _lblSweepStats.Text = $"本次扫描成果: 发现 {stats.LastVisibleCount} 封 | 归档 {stats.LastArchivedCount} 封 (恢复 {stats.LastRecoveredCount} 封) | 跳过 {stats.LastSkippedCount} 封 | 存疑 {stats.LastUncertainCount} 封 | 失败 {stats.LastFailedCount} 封";
                 }
                 else
                 {

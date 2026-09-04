@@ -169,9 +169,12 @@ PRAGMA busy_timeout=5000;
 3. 双击 `OutlookJunkRescuer.vsto`，在弹出的 Microsoft Office 提示框中点击“安装”即可；
 4. **卸载**：直接在 Windows“设置” -> “应用和功能”（或控制面板“程序和功能”）中找到 `OutlookJunkRescuer` 卸载。
 
-### 方式二：便携免安装版（注册表一键注册，完全无需导入证书）
+### 方式二：便携免安装版（注册表一键就地注册）
 
-适用于不希望向系统证书库导入任何证书、希望开箱即用的用户。该方式通过注册表中的 `|vstolocal` 本地加载标志，指示 VSTO 运行时直接以本地全信任加载插件，**完全绕过证书验证机制**。
+适用于希望绿色便携、就地加载的用户。该方式通过在注册表 Manifest 路径后添加 `|vstolocal` 标志，指示 VSTO 运行时直接从程序集所在的本地目录加载运行，而不是将其复制到 ClickOnce 缓存目录中。
+
+> [!NOTE]
+> `|vstolocal` 改变的是加载位置（本地目录 vs. ClickOnce 缓存），VSTO 仍遵循 Windows 与 Office 信任体系。如果您的系统组策略对未受信任加载项实施了严格阻断，建议优先使用方式一或在 Outlook 信任中心允许加载。
 
 1. 将 `OutlookJunkRescuer-Portable-Bat.zip` 解压到你打算长期存放的文件夹（例如 `C:\Tools\OutlookJunkRescuer`）；
 2. 双击运行 `install.bat`，即可一键注册至当前用户的 Outlook 加载项；

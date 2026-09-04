@@ -25,6 +25,80 @@ namespace OutlookJunkRescuer
             string storeId,
             Outlook.MAPIFolder junkFolder)
         {
+            try
+            {
+                return ReadJunkViaTable(accountSmtp, storeId, junkFolder);
+            }
+            catch (Exception ex)
+            {
+                Logger.Write($"[{accountSmtp}] Table-based ReadJunk failed, falling back to Items enumeration: {ex.Message}");
+                return ReadJunkViaItems(accountSmtp, storeId, junkFolder);
+            }
+        }
+
+        private List<SourceMessageDescriptor> ReadJunkViaTable(
+            string accountSmtp,
+            string storeId,
+            Outlook.MAPIFolder junkFolder)
+        {
+            var result = new List<SourceMessageDescriptor>();
+            Outlook.Table table = null;
+            Outlook.Columns columns = null;
+
+            try
+            {
+                table = junkFolder.GetTable();
+                columns = table.Columns;
+
+                try { columns.Add("EntryID"); } catch { }
+                try { columns.Add(MapiIdentity.SearchKeySchema); } catch { }
+                try { columns.Add(MapiIdentity.RecordKeySchema); } catch { }
+
+                while (!table.EndOfTable)
+                {
+                    Outlook.Row row = null;
+                    try
+                    {
+                        row = table.GetNextRow();
+                        string entryId = row["EntryID"] as string;
+                        object rawSearch = row[MapiIdentity.SearchKeySchema];
+                        object rawRecord = row[MapiIdentity.RecordKeySchema];
+
+                        string searchKeyHex = rawSearch is byte[] sBytes ? MapiIdentity.ToHex(sBytes) : null;
+                        string recordKeyHex = rawRecord is byte[] rBytes ? MapiIdentity.ToHex(rBytes) : null;
+
+                        if (!string.IsNullOrEmpty(entryId) &&
+                            !string.IsNullOrEmpty(searchKeyHex) &&
+                            !string.IsNullOrEmpty(recordKeyHex))
+                        {
+                            result.Add(new SourceMessageDescriptor(
+                                accountSmtp,
+                                storeId,
+                                entryId,
+                                searchKeyHex,
+                                recordKeyHex));
+                        }
+                    }
+                    finally
+                    {
+                        ComUtil.Release(row);
+                    }
+                }
+
+                return result;
+            }
+            finally
+            {
+                ComUtil.Release(columns);
+                ComUtil.Release(table);
+            }
+        }
+
+        private List<SourceMessageDescriptor> ReadJunkViaItems(
+            string accountSmtp,
+            string storeId,
+            Outlook.MAPIFolder junkFolder)
+        {
             var result = new List<SourceMessageDescriptor>();
             Outlook.Items items = null;
 
