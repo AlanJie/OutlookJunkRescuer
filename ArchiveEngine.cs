@@ -12,8 +12,13 @@ namespace OutlookJunkRescuer
             new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
                 "outlook.com",
-                "hotmail.com"
+                "hotmail.com",
+                "live.com",
+                "live.cn",
+                "msn.com"
             };
+
+        public static SweepStatistics Statistics { get; } = new SweepStatistics();
 
         private readonly Outlook.NameSpace _session;
         private readonly OutlookSourceReader _source;
@@ -35,6 +40,12 @@ namespace OutlookJunkRescuer
         public void RunStartupSweep()
         {
             Outlook.Accounts accounts = null;
+            int totalVisible = 0;
+            int totalArchived = 0;
+            int totalRecovered = 0;
+            int totalUncertain = 0;
+            int totalSkipped = 0;
+            int totalFailed = 0;
 
             try
             {
@@ -69,17 +80,53 @@ namespace OutlookJunkRescuer
                             continue;
                         }
 
-                        ProcessStore(store, smtp, storeId);
+                        int storeArchived = 0;
+                        int storeRecovered = 0;
+                        int storeUncertain = 0;
+                        int storeSkipped = 0;
+                        int storeFailed = 0;
+                        int storeVisible = 0;
+
+                        ProcessStore(
+                            store,
+                            smtp,
+                            storeId,
+                            out storeVisible,
+                            out storeArchived,
+                            out storeRecovered,
+                            out storeUncertain,
+                            out storeSkipped,
+                            out storeFailed);
+
+                        totalVisible += storeVisible;
+                        totalArchived += storeArchived;
+                        totalRecovered += storeRecovered;
+                        totalUncertain += storeUncertain;
+                        totalSkipped += storeSkipped;
+                        totalFailed += storeFailed;
                     }
                     catch (Exception ex)
                     {
                         Logger.Write($"Account #{i} failed: {ex}");
+                        totalFailed++;
                     }
                     finally
                     {
                         ComUtil.Release(store);
                         ComUtil.Release(account);
                     }
+                }
+
+                lock (Statistics)
+                {
+                    Statistics.LastSweepTime = DateTime.Now;
+                    Statistics.LastVisibleCount = totalVisible;
+                    Statistics.LastArchivedCount = totalArchived;
+                    Statistics.LastRecoveredCount = totalRecovered;
+                    Statistics.LastUncertainCount = totalUncertain;
+                    Statistics.LastSkippedCount = totalSkipped;
+                    Statistics.LastFailedCount = totalFailed;
+                    Statistics.TotalArchivedSession += totalArchived;
                 }
             }
             finally
@@ -91,17 +138,24 @@ namespace OutlookJunkRescuer
         private void ProcessStore(
             Outlook.Store store,
             string smtp,
-            string storeId)
+            string storeId,
+            out int visible,
+            out int archived,
+            out int recovered,
+            out int uncertain,
+            out int skipped,
+            out int failed)
         {
             Outlook.MAPIFolder junk = null;
             Outlook.MAPIFolder inbox = null;
             Outlook.MAPIFolder archive = null;
 
-            int archived = 0;
-            int recovered = 0;
-            int uncertain = 0;
-            int skipped = 0;
-            int failed = 0;
+            visible = 0;
+            archived = 0;
+            recovered = 0;
+            uncertain = 0;
+            skipped = 0;
+            failed = 0;
 
             try
             {
@@ -120,6 +174,8 @@ namespace OutlookJunkRescuer
 
                 List<SourceMessageDescriptor> items =
                     _source.ReadJunk(smtp, storeId, junk);
+
+                visible = items.Count;
 
                 var groups = items
                     .GroupBy(x => x.SearchKeyHex, StringComparer.Ordinal)
@@ -156,6 +212,66 @@ namespace OutlookJunkRescuer
                 ComUtil.Release(archive);
                 ComUtil.Release(inbox);
                 ComUtil.Release(junk);
+            }
+        }
+
+        public bool ProcessSingleItem(
+            object rawItem,
+            string accountSmtp,
+            string storeId,
+            Outlook.MAPIFolder junkFolder)
+        {
+            var descriptor = _source.TryReadDescriptor(accountSmtp, storeId, rawItem);
+            if (descriptor == null)
+                return false;
+
+            Outlook.Store store = null;
+            Outlook.MAPIFolder inbox = null;
+            Outlook.MAPIFolder archive = null;
+
+            int archived = 0;
+            int recovered = 0;
+            int uncertain = 0;
+            int skipped = 0;
+
+            try
+            {
+                store = _session.GetStoreFromID(storeId);
+                if (store == null)
+                    return false;
+
+                inbox = store.GetDefaultFolder(Outlook.OlDefaultFolders.olFolderInbox);
+                if (inbox == null)
+                    return false;
+
+                archive = _archiveWriter.GetOrCreateArchiveFolder(inbox);
+
+                ProcessLogicalMessage(
+                    new List<SourceMessageDescriptor> { descriptor },
+                    archive,
+                    ref archived,
+                    ref recovered,
+                    ref uncertain,
+                    ref skipped);
+
+                if (archived > 0)
+                {
+                    lock (Statistics)
+                    {
+                        Statistics.TotalArchivedSession++;
+                        Statistics.TotalRealtimeIntercepted++;
+                    }
+                    Logger.Write($"[{accountSmtp}] Real-time intercepted and archived junk item: SearchKey={descriptor.SearchKeyHex}");
+                    return true;
+                }
+
+                return false;
+            }
+            finally
+            {
+                ComUtil.Release(archive);
+                ComUtil.Release(inbox);
+                ComUtil.Release(store);
             }
         }
 
@@ -556,7 +672,7 @@ namespace OutlookJunkRescuer
                 $"state={state.State}: {reason}; no Outlook object modified.");
         }
 
-        private static bool IsSupportedAddress(string smtp)
+        public static bool IsSupportedAddress(string smtp)
         {
             if (string.IsNullOrWhiteSpace(smtp))
                 return false;
@@ -569,7 +685,7 @@ namespace OutlookJunkRescuer
             return AllowedConsumerDomains.Contains(domain);
         }
 
-        private static string TryGetSmtpAddress(Outlook.Account account)
+        public static string TryGetSmtpAddress(Outlook.Account account)
         {
             try
             {

@@ -12,7 +12,7 @@ Junk                    Inbox\Junk Archive
 original stays here  -> plugin-owned copy
 ```
 
-Only accounts whose SMTP domain is exactly `outlook.com` or `hotmail.com` are processed.
+Only accounts whose SMTP domain belongs to Microsoft consumer webmail (`@outlook.com`, `@hotmail.com`, `@live.com`, `@live.cn`, `@msn.com`) are processed.
 
 ---
 
@@ -99,6 +99,28 @@ There is also an `Uncertain` state:
 
 ---
 
+## Dual-Track Protection Engine & Diagnostics UI
+
+### 1. Real-Time Interception (Fast Path)
+Upon startup, the add-in attaches a `JunkFolderWatcher` to the Junk folder of every configured and supported consumer account, listening to the COM `Items.ItemAdd` event:
+- **Instant Response**: As soon as a message lands in the Junk Email folder, it is archived to `Inbox\Junk Archive` in milliseconds without waiting for a sweep cycle.
+- **GC Protection**: The add-in holds long-lived managed references to both `MAPIFolder` and `Items` collections to prevent the .NET Garbage Collector from prematurely tearing down COM RCW event sinks.
+- **Crash-Resilient State Machine**: Real-time processing flows through the exact same idempotent v4 durable state machine with write-ahead barriers, ensuring zero duplicate messages or partial corruption even if Outlook terminates mid-operation.
+
+### 2. Startup & Manual Reconciliation Sweep (Slow Path)
+- Automatically executes 15 seconds after Classic Outlook starts up to catch any emails delivered while Outlook was offline or closed, and replays/recovers any unfinished operations.
+- Can be triggered manually on-demand at any time from the diagnostics console.
+
+### 3. Ribbon UI & Diagnostics Console (`StatusForm`)
+- **Native Ribbon Button**: Embedded seamlessly into the Outlook `Home (Mail)` tab as **Junk Rescuer**.
+- **Status & Diagnostics Console**:
+  - Displays real-time protection status and list of monitored mailbox accounts;
+  - Shows metrics from the latest sweep (time, duration, archived, skipped, uncertain, and failed counts, plus real-time intercept counter);
+  - Displays SQLite database path and active file size;
+  - Action buttons to trigger an immediate full reconciliation sweep or open the local logs and database folder in Explorer.
+
+---
+
 ## Folder-Level Custom Properties
 
 The Archive folder registers:
@@ -177,7 +199,10 @@ Native SQLite binaries are deployed automatically to `bin\Release\x64` and `bin\
 
 ## Project Structure
 
-- `ThisAddIn.cs` — Add-in lifecycle and delayed startup sweep.
+- `ThisAddIn.cs` — Add-in lifecycle, watcher attachment, and delayed startup sweep.
+- `JunkFolderWatcher.cs` — Real-time `ItemAdd` event listener for Junk folders with COM GC protection.
+- `Ribbon.cs` — Outlook Explorer Ribbon extension and "Junk Rescuer" button definition.
+- `StatusForm.cs` — WinForms status and diagnostics console dialog.
 - `ArchiveEngine.cs` — Durable state machine and crash recovery policy.
 - `OutlookSourceReader.cs` — Narrow read/Copy-only source inspection.
 - `OwnedCopyLocator.cs` — Validates and reopens provably plugin-owned copies.

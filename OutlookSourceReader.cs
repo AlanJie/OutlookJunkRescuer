@@ -40,28 +40,11 @@ namespace OutlookJunkRescuer
                     try
                     {
                         raw = items[i];
-                        var mail = raw as Outlook.MailItem;
-
-                        if (mail == null)
-                            continue;
-
-                        string entryId = mail.EntryID;
-                        string searchKey = MapiIdentity.GetSearchKeyHex(mail);
-                        string recordKey = MapiIdentity.GetRecordKeyHex(mail);
-
-                        if (string.IsNullOrEmpty(entryId) ||
-                            string.IsNullOrEmpty(searchKey) ||
-                            string.IsNullOrEmpty(recordKey))
+                        var descriptor = TryReadDescriptor(accountSmtp, storeId, raw);
+                        if (descriptor != null)
                         {
-                            continue;
+                            result.Add(descriptor);
                         }
-
-                        result.Add(new SourceMessageDescriptor(
-                            accountSmtp,
-                            storeId,
-                            entryId,
-                            searchKey,
-                            recordKey));
                     }
                     catch (COMException ex)
                     {
@@ -128,6 +111,42 @@ namespace OutlookJunkRescuer
             finally
             {
                 ComUtil.Release(raw);
+            }
+        }
+
+        public SourceMessageDescriptor TryReadDescriptor(
+            string accountSmtp,
+            string storeId,
+            object rawItem)
+        {
+            var mail = rawItem as Outlook.MailItem;
+            if (mail == null)
+                return null;
+
+            try
+            {
+                string entryId = mail.EntryID;
+                string searchKey = MapiIdentity.GetSearchKeyHex(mail);
+                string recordKey = MapiIdentity.GetRecordKeyHex(mail);
+
+                if (string.IsNullOrEmpty(entryId) ||
+                    string.IsNullOrEmpty(searchKey) ||
+                    string.IsNullOrEmpty(recordKey))
+                {
+                    return null;
+                }
+
+                return new SourceMessageDescriptor(
+                    accountSmtp,
+                    storeId,
+                    entryId,
+                    searchKey,
+                    recordKey);
+            }
+            catch (Exception ex)
+            {
+                Logger.Write($"[{accountSmtp}] TryReadDescriptor failed: {ex.Message}");
+                return null;
             }
         }
     }

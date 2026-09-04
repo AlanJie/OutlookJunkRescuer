@@ -12,7 +12,7 @@
 原始邮件保持不动      ->   插件托管的安全归档副本
 ```
 
-仅处理发件箱或账户 SMTP 域名完全匹配 `outlook.com` 或 `hotmail.com` 的账户。
+仅处理发件箱或账户 SMTP 域名属于微软个人邮箱生态（`@outlook.com`、`@hotmail.com`、`@live.com`、`@live.cn`、`@msn.com`）的账户。
 
 ---
 
@@ -99,6 +99,28 @@ Archived (归档完成)
 
 ---
 
+## 双轨防护与诊断界面 (Dual-Track Engine & UI)
+
+### 1. 实时拦截保护 (Fast Path)
+插件启动后会自动为所有符合域名的有效账户的垃圾邮件箱（Junk Folder）挂载事件监听器（`JunkFolderWatcher`），监听 COM 的 `Items.ItemAdd` 事件：
+- **实时响应**：每当有新邮件落入垃圾箱时，无需等待扫描周期，毫秒级在后台无感完成副本创建与移动保护；
+- **防 GC 释放机制**：在插件托管生命周期内，对垃圾箱 `MAPIFolder` 与 `Items` 集合持有强引用字段，规避 .NET COM RCW 被垃圾回收器提早回收导致监听失效的问题；
+- **状态机保障**：即使是实时拦截路径，完全复用同一套 v4 持久化状态机与预写式事务屏障，确保在任何断电、崩溃场景下的数据幂等与绝对安全。
+
+### 2. 启动与手动对账扫描 (Reconciliation Sweep)
+- 经典版 Outlook 启动 15 秒后自动执行一次全量垃圾箱对账扫描，补全客户端离线期间在服务端落入垃圾箱的邮件，并自动重放、恢复任何未完成的事务；
+- 支持随时在控制台中手动触发全量对账扫描。
+
+### 3. 功能区与诊断控制台 (Ribbon & Status Console)
+- **Ribbon 菜单**：在 Outlook 主界面“开始 (邮件)”选项卡中内置原生 “Junk Rescuer” 按钮；
+- **诊断控制台 (`StatusForm`)**：
+  - 实时保护状态与当前受保护的邮箱账户列表；
+  - 最近一次扫描时间、耗时、处理状态统计（Archived / Skipped / Uncertain / Failed 以及实时拦截计数）；
+  - 本地 SQLite 状态数据库绝对路径与文件大小；
+  - 一键执行对账扫描与一键打开日志和数据存储目录。
+
+---
+
 ## 文件夹级自定义字段 (Folder Properties)
 
 归档文件夹会自动注册：
@@ -177,7 +199,10 @@ msbuild OutlookJunkRescuer.csproj /t:Build /p:Configuration=Release
 
 ## 项目文件结构说明
 
-- `ThisAddIn.cs` — 插件生命周期管理与启动延时扫描调度。
+- `ThisAddIn.cs` — 插件生命周期管理、事件监听挂载与启动延时扫描调度。
+- `JunkFolderWatcher.cs` — 垃圾箱实时 `ItemAdd` 事件监听器与 COM 强引用持有。
+- `Ribbon.cs` — Outlook Explorer 功能区 (Ribbon) 扩展与“Junk Rescuer”按钮定义。
+- `StatusForm.cs` — 运行状态与诊断信息可视化控制台窗口。
 - `ArchiveEngine.cs` — 防崩溃持久化状态机与异常恢复引擎。
 - `OutlookSourceReader.cs` — 垃圾箱源邮件的狭窄只读与 Copy 抽象。
 - `OwnedCopyLocator.cs` — 确权副本校验与安全重新定位器。

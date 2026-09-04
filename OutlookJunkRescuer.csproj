@@ -204,6 +204,11 @@
     <Compile Include="Models.cs" />
     <Compile Include="OutlookSourceReader.cs" />
     <Compile Include="OwnedCopyLocator.cs" />
+    <Compile Include="JunkFolderWatcher.cs" />
+    <Compile Include="Ribbon.cs" />
+    <Compile Include="StatusForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="SqliteStateStore.cs" />
     <None Include="OutlookJunkRescuer_TemporaryKey.pfx" Condition="Exists('OutlookJunkRescuer_TemporaryKey.pfx')" />
     <AppDesigner Include="Properties\" />

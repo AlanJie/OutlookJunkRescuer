@@ -81,4 +81,17 @@ namespace OutlookJunkRescuer
             SearchKeyHex = searchKeyHex;
         }
     }
+
+    internal sealed class SweepStatistics
+    {
+        public System.DateTime LastSweepTime { get; set; } = System.DateTime.MinValue;
+        public int LastVisibleCount { get; set; }
+        public int LastArchivedCount { get; set; }
+        public int LastRecoveredCount { get; set; }
+        public int LastUncertainCount { get; set; }
+        public int LastSkippedCount { get; set; }
+        public int LastFailedCount { get; set; }
+        public int TotalArchivedSession { get; set; }
+        public int TotalRealtimeIntercepted { get; set; }
+    }
 }
