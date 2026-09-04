@@ -5,19 +5,6 @@ using Outlook = Microsoft.Office.Interop.Outlook;
 
 namespace OutlookJunkRescuer
 {
-    public enum DuplicateRetentionPolicy
-    {
-        /// <summary>
-        /// 保留最早创建的归档副本（推荐）
-        /// </summary>
-        KeepEarliest,
-
-        /// <summary>
-        /// 保留最新创建的归档副本
-        /// </summary>
-        KeepLatest
-    }
-
     public enum DuplicateDestination
     {
         /// <summary>
@@ -40,7 +27,6 @@ namespace OutlookJunkRescuer
         public string CopyId { get; set; }
         public string ReplicaId { get; set; }
         public string PluginId { get; set; }
-        public DateTime CreatedUtc { get; set; }
         public string Subject { get; set; }
         public DateTime ReceivedTime { get; set; }
     }
@@ -77,7 +63,6 @@ namespace OutlookJunkRescuer
         private const string ArchiveKeyDasl = "http://schemas.microsoft.com/mapi/string/{00020329-0000-0000-C000-000000000046}/" + ArchiveWriter.ArchiveKeyProperty;
         private const string CopyIdDasl = "http://schemas.microsoft.com/mapi/string/{00020329-0000-0000-C000-000000000046}/" + ArchiveWriter.CopyIdProperty;
         private const string ReplicaIdDasl = "http://schemas.microsoft.com/mapi/string/{00020329-0000-0000-C000-000000000046}/" + ArchiveWriter.ReplicaIdProperty;
-        private const string CreatedUtcDasl = "http://schemas.microsoft.com/mapi/string/{00020329-0000-0000-C000-000000000046}/" + ArchiveWriter.CreatedUtcProperty;
 
         private readonly Outlook.NameSpace _session;
         private readonly ArchiveWriter _archiveWriter;
@@ -125,13 +110,11 @@ namespace OutlookJunkRescuer
                 bool hasArchiveKeyCol = false;
                 bool hasCopyCol = false;
                 bool hasReplicaCol = false;
-                bool hasCreatedUtcCol = false;
 
                 try { columns.Add(PluginIdDasl); hasPluginCol = true; } catch { }
                 try { columns.Add(ArchiveKeyDasl); hasArchiveKeyCol = true; } catch { }
                 try { columns.Add(CopyIdDasl); hasCopyCol = true; } catch { }
                 try { columns.Add(ReplicaIdDasl); hasReplicaCol = true; } catch { }
-                try { columns.Add(CreatedUtcDasl); hasCreatedUtcCol = true; } catch { }
 
                 while (!table.EndOfTable)
                 {
@@ -168,7 +151,6 @@ namespace OutlookJunkRescuer
                         string archiveKey = null;
                         string copyId = null;
                         string replicaId = null;
-                        string createdUtcStr = null;
 
                         if (hasPluginCol && hasArchiveKeyCol && hasCopyCol && hasReplicaCol)
                         {
@@ -176,10 +158,6 @@ namespace OutlookJunkRescuer
                             try { archiveKey = Convert.ToString(row[ArchiveKeyDasl]); } catch { }
                             try { copyId = Convert.ToString(row[CopyIdDasl]); } catch { }
                             try { replicaId = Convert.ToString(row[ReplicaIdDasl]); } catch { }
-                            if (hasCreatedUtcCol)
-                            {
-                                try { createdUtcStr = Convert.ToString(row[CreatedUtcDasl]); } catch { }
-                            }
                         }
                         else
                         {
@@ -194,7 +172,6 @@ namespace OutlookJunkRescuer
                                     archiveKey = GetTextProperty(mail, ArchiveWriter.ArchiveKeyProperty);
                                     copyId = GetTextProperty(mail, ArchiveWriter.CopyIdProperty);
                                     replicaId = GetTextProperty(mail, ArchiveWriter.ReplicaIdProperty);
-                                    createdUtcStr = GetTextProperty(mail, ArchiveWriter.CreatedUtcProperty);
                                 }
                             }
                             catch
@@ -233,13 +210,6 @@ namespace OutlookJunkRescuer
                             // Ignore date parse errors
                         }
 
-                        DateTime createdUtc = receivedTime;
-                        if (!string.IsNullOrEmpty(createdUtcStr) &&
-                            DateTime.TryParse(createdUtcStr, null, System.Globalization.DateTimeStyles.RoundtripKind, out DateTime dtParsed))
-                        {
-                            createdUtc = dtParsed.ToUniversalTime();
-                        }
-
                         allCopies.Add(new OwnedCopyInfo
                         {
                             EntryId = entryId,
@@ -249,7 +219,6 @@ namespace OutlookJunkRescuer
                             CopyId = copyId,
                             ReplicaId = replicaId,
                             PluginId = pluginId,
-                            CreatedUtc = createdUtc,
                             Subject = subject,
                             ReceivedTime = receivedTime
                         });
@@ -277,7 +246,7 @@ namespace OutlookJunkRescuer
         }
 
         /// <summary>
-        /// 保留重验证清理：对指定的重复组执行清理，将多余的副本安全移动至指定目标文件夹（Duplicate Trash 软隔离目录或废件箱）。
+        /// 保留重验证清理：对指定的重复组执行清理，在保留 1 份法定有效副本的前提下，将多余的副本安全移动至目标文件夹。
         /// 遵循绝对铁律：Never reduce 1 -> 0（绝不导致该邮件在归档中清零）。
         /// 每次移动前重新对具体项目执行完整的 OJR 所有权正向验证。
         /// </summary>
@@ -285,7 +254,6 @@ namespace OutlookJunkRescuer
             Outlook.MAPIFolder archiveFolder,
             string storeId,
             List<DuplicateGroup> groups,
-            DuplicateRetentionPolicy policy,
             DuplicateDestination destination,
             Action<int, int> progressCallback)
         {
@@ -350,31 +318,13 @@ namespace OutlookJunkRescuer
                         continue;
                     }
 
-                    // 根据策略排序副本：按 OJRCreatedUtc 排序，并以 OJRCopyId 作为稳定 tie-break
-                    List<OwnedCopyInfo> orderedCopies;
-                    if (policy == DuplicateRetentionPolicy.KeepLatest)
-                    {
-                        orderedCopies = group.Copies
-                            .OrderByDescending(c => c.CreatedUtc)
-                            .ThenByDescending(c => c.CopyId, StringComparer.Ordinal)
-                            .ToList();
-                    }
-                    else
-                    {
-                        // 默认：保留最早创建的副本
-                        orderedCopies = group.Copies
-                            .OrderBy(c => c.CreatedUtc)
-                            .ThenBy(c => c.CopyId, StringComparer.Ordinal)
-                            .ToList();
-                    }
-
-                    // 1. 验证并寻找 Winner（留在 Junk Archive 中的法定副本）
+                    // 1. 验证并寻找 Winner（留在 Junk Archive 中的法定留存副本）
                     OwnedCopyInfo winnerCopy = null;
                     Outlook.MailItem winnerItem = null;
 
-                    for (int i = 0; i < orderedCopies.Count; i++)
+                    for (int i = 0; i < group.Copies.Count; i++)
                     {
-                        var candidate = orderedCopies[i];
+                        var candidate = group.Copies[i];
                         Outlook.MailItem item = null;
                         try
                         {
@@ -408,7 +358,7 @@ namespace OutlookJunkRescuer
                     try
                     {
                         // 2. 遍历其余候选 Loser 副本进行保守移动
-                        foreach (var loserCopy in orderedCopies)
+                        foreach (var loserCopy in group.Copies)
                         {
                             if (ReferenceEquals(loserCopy, winnerCopy))
                                 continue;

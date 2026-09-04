@@ -17,7 +17,6 @@ namespace OutlookJunkRescuer
         public const string ArchiveKeyProperty = "OJRArchiveKey";
         public const string CopyIdProperty = "OJRCopyId";
         public const string ReplicaIdProperty = "OJRReplicaId";
-        public const string CreatedUtcProperty = "OJRCreatedUtc";
 
         public const string ArchiveIdProperty = "OJRArchiveId";
         public const string SearchKeyProperty = "OJRSearchKey";
@@ -194,7 +193,6 @@ namespace OutlookJunkRescuer
             SetTextProperty(copy, PluginIdProperty, PluginIdValue);
             SetTextProperty(copy, ArchiveKeyProperty, searchKeyHex);
             SetTextProperty(copy, CopyIdProperty, operationId);
-            SetTextProperty(copy, CreatedUtcProperty, DateTime.UtcNow.ToString("o"));
             if (!string.IsNullOrEmpty(replicaId))
             {
                 SetTextProperty(copy, ReplicaIdProperty, replicaId);
@@ -314,7 +312,6 @@ namespace OutlookJunkRescuer
             EnsureFolderField(archive, ArchiveKeyProperty);
             EnsureFolderField(archive, CopyIdProperty);
             EnsureFolderField(archive, ReplicaIdProperty);
-            EnsureFolderField(archive, CreatedUtcProperty);
             EnsureFolderField(archive, ArchiveIdProperty);
             EnsureFolderField(archive, SearchKeyProperty);
         }

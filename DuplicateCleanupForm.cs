@@ -32,8 +32,6 @@ namespace OutlookJunkRescuer
         private Label _lblStatus;
         private Label _lblSummary;
         private DataGridView _grid;
-        private RadioButton _rdoKeepEarliest;
-        private RadioButton _rdoKeepLatest;
         private RadioButton _rdoDestTrash;
         private RadioButton _rdoDestDeleted;
         private ProgressBar _progressBar;
@@ -66,7 +64,7 @@ namespace OutlookJunkRescuer
         private void InitializeComponent()
         {
             this.Text = "Outlook Junk Rescuer — 跨设备重复归档副本清理";
-            this.Size = new Size(760, 640);
+            this.Size = new Size(760, 565);
             this.StartPosition = FormStartPosition.CenterScreen;
             this.FormBorderStyle = FormBorderStyle.FixedDialog;
             this.MaximizeBox = false;
@@ -87,7 +85,7 @@ namespace OutlookJunkRescuer
 
             _lblSubHeader = new Label
             {
-                Text = "多设备独立备份可能会产生良性重复副本。本工具遵循 Never-reduce-1->0 铁律，在保留 1 份法定有效副本的前提下，安全将多余副本移至隔离目录或废件箱。",
+                Text = "多设备独立备份可能会产生良性重复副本。本工具遵循 Never-reduce-1->0 铁律，在确保归档中安全保留 1 份有效副本的前提下，将其余多余副本移至隔离目录或废件箱。",
                 Location = new Point(16, 40),
                 Size = new Size(710, 32),
                 Font = new Font("Segoe UI", 9F, FontStyle.Regular),
@@ -121,14 +119,14 @@ namespace OutlookJunkRescuer
             {
                 Text = " 重复归档邮件列表 ",
                 Location = new Point(16, 110),
-                Size = new Size(712, 210),
+                Size = new Size(712, 226),
                 Font = new Font("Segoe UI", 9F, FontStyle.Bold)
             };
 
             _grid = new DataGridView
             {
                 Location = new Point(12, 22),
-                Size = new Size(688, 176),
+                Size = new Size(688, 192),
                 Font = new Font("Segoe UI", 9F, FontStyle.Regular),
                 ReadOnly = true,
                 AllowUserToAddRows = false,
@@ -157,40 +155,11 @@ namespace OutlookJunkRescuer
             grpResults.Controls.Add(_grid);
             this.Controls.Add(grpResults);
 
-            // Policy panel
-            var grpPolicy = new GroupBox
-            {
-                Text = " 保留策略 ",
-                Location = new Point(16, 328),
-                Size = new Size(712, 48),
-                Font = new Font("Segoe UI", 9F, FontStyle.Bold)
-            };
-
-            _rdoKeepEarliest = new RadioButton
-            {
-                Text = "保留最早创建的副本 (推荐)",
-                Location = new Point(20, 18),
-                Size = new Size(240, 22),
-                Font = new Font("Segoe UI", 9F, FontStyle.Regular),
-                Checked = true
-            };
-            grpPolicy.Controls.Add(_rdoKeepEarliest);
-
-            _rdoKeepLatest = new RadioButton
-            {
-                Text = "保留最新创建的副本",
-                Location = new Point(280, 18),
-                Size = new Size(220, 22),
-                Font = new Font("Segoe UI", 9F, FontStyle.Regular)
-            };
-            grpPolicy.Controls.Add(_rdoKeepLatest);
-            this.Controls.Add(grpPolicy);
-
             // Destination panel
             var grpDestination = new GroupBox
             {
                 Text = " 多余副本清理去向 ",
-                Location = new Point(16, 382),
+                Location = new Point(16, 344),
                 Size = new Size(712, 48),
                 Font = new Font("Segoe UI", 9F, FontStyle.Bold)
             };
@@ -218,7 +187,7 @@ namespace OutlookJunkRescuer
             // Status info
             _lblStatus = new Label
             {
-                Location = new Point(16, 436),
+                Location = new Point(16, 400),
                 Size = new Size(710, 20),
                 Font = new Font("Segoe UI", 9F, FontStyle.Regular),
                 Text = "状态: 正在初始化..."
@@ -227,7 +196,7 @@ namespace OutlookJunkRescuer
 
             _lblSummary = new Label
             {
-                Location = new Point(16, 458),
+                Location = new Point(16, 422),
                 Size = new Size(710, 20),
                 Font = new Font("Segoe UI", 9F, FontStyle.Bold),
                 ForeColor = Color.FromArgb(0, 102, 204),
@@ -237,7 +206,7 @@ namespace OutlookJunkRescuer
 
             _progressBar = new ProgressBar
             {
-                Location = new Point(16, 482),
+                Location = new Point(16, 446),
                 Size = new Size(712, 16),
                 Visible = false
             };
@@ -247,7 +216,7 @@ namespace OutlookJunkRescuer
             _btnScan = new Button
             {
                 Text = "扫描重复项 (&S)",
-                Location = new Point(16, 508),
+                Location = new Point(16, 472),
                 Size = new Size(125, 34),
                 BackColor = Color.FromArgb(0, 120, 215),
                 ForeColor = Color.White,
@@ -262,7 +231,7 @@ namespace OutlookJunkRescuer
             _btnClean = new Button
             {
                 Text = "执行清理 (&C)",
-                Location = new Point(148, 508),
+                Location = new Point(148, 472),
                 Size = new Size(125, 34),
                 BackColor = Color.FromArgb(216, 59, 1),
                 ForeColor = Color.White,
@@ -278,7 +247,7 @@ namespace OutlookJunkRescuer
             _btnOpenTrash = new Button
             {
                 Text = "打开 Duplicate Trash (&T)",
-                Location = new Point(280, 508),
+                Location = new Point(280, 472),
                 Size = new Size(165, 34),
                 BackColor = Color.FromArgb(225, 225, 225),
                 FlatStyle = FlatStyle.Flat,
@@ -291,7 +260,7 @@ namespace OutlookJunkRescuer
             _btnEmptyTrash = new Button
             {
                 Text = "清空 Trash (&E)",
-                Location = new Point(452, 508),
+                Location = new Point(452, 472),
                 Size = new Size(120, 34),
                 BackColor = Color.FromArgb(225, 225, 225),
                 FlatStyle = FlatStyle.Flat,
@@ -304,7 +273,7 @@ namespace OutlookJunkRescuer
             _btnClose = new Button
             {
                 Text = "关闭 (&X)",
-                Location = new Point(628, 508),
+                Location = new Point(628, 472),
                 Size = new Size(100, 34),
                 BackColor = Color.FromArgb(225, 225, 225),
                 FlatStyle = FlatStyle.Flat,
@@ -504,10 +473,9 @@ namespace OutlookJunkRescuer
             int totalRedundant = _duplicateGroups.Sum(g => g.RedundantCopies);
             var confirm = MessageBox.Show(
                 $"即将对 {_duplicateGroups.Count} 组重复邮件执行清理。\n\n" +
-                $"• 策略: {(_rdoKeepEarliest.Checked ? "保留最早创建的副本" : "保留最新创建的副本")}\n" +
-                $"• 目标: 移动至 {destDesc}\n" +
+                $"• 目标: 移动多余副本至 {destDesc}\n" +
                 $"• 预计将 {totalRedundant} 份多余副本安全移出。\n" +
-                $"• 系统坚守 Never-reduce-1->0 铁律，确保每组在 Junk Archive 均保留 1 份法定有效副本。\n\n" +
+                $"• 系统坚守 Never-reduce-1->0 铁律，确保每组在 Junk Archive 均安全保留 1 份法定有效副本。\n\n" +
                 "是否立即开始清理？",
                 "确认执行重复副本清理",
                 MessageBoxButtons.YesNo,
@@ -524,15 +492,10 @@ namespace OutlookJunkRescuer
 
             try
             {
-                var policy = _rdoKeepEarliest.Checked
-                    ? DuplicateRetentionPolicy.KeepEarliest
-                    : DuplicateRetentionPolicy.KeepLatest;
-
                 var result = _cleaner.CleanDuplicates(
                     _archiveFolder,
                     _storeId,
                     _duplicateGroups,
-                    policy,
                     destination,
                     (current, total) =>
                     {
