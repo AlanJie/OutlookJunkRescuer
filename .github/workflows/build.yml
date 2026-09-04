@@ -74,11 +74,9 @@ jobs:
       run: |
         $portableDir = "publish-portable"
         New-Item -ItemType Directory -Path $portableDir -Force | Out-Null
-        Copy-Item -Path "bin\Release\OutlookJunkRescuer.dll" -Destination $portableDir -Force
+        Copy-Item -Path "bin\Release\*.dll" -Destination $portableDir -Force
         Copy-Item -Path "bin\Release\OutlookJunkRescuer.vsto" -Destination $portableDir -Force
         Copy-Item -Path "bin\Release\OutlookJunkRescuer.dll.manifest" -Destination $portableDir -Force
-        Copy-Item -Path "bin\Release\System.Data.SQLite.dll" -Destination $portableDir -Force
-        Copy-Item -Path "bin\Release\Microsoft.Office.Tools.*.Utilities.dll" -Destination $portableDir -Force
         Copy-Item -Path "bin\Release\x64" -Destination $portableDir -Recurse -Force
         Copy-Item -Path "bin\Release\x86" -Destination $portableDir -Recurse -Force
         Copy-Item -Path "install.bat" -Destination $portableDir -Force
