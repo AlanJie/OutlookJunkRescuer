@@ -133,8 +133,13 @@ WHERE account_smtp = @account_smtp AND search_key_hex = @search_key_hex;";
                 using (var cmd = _connection.CreateCommand())
                 {
                     cmd.CommandText = SelectSql + @"
-WHERE account_smtp = @account_smtp AND state IN (0, 1, 2, 4);";
+WHERE account_smtp = @account_smtp 
+  AND state IN (@pending, @copy_created, @moving, @uncertain);";
                     cmd.Parameters.AddWithValue("@account_smtp", accountSmtp);
+                    cmd.Parameters.AddWithValue("@pending", (int)ArchiveState.Pending);
+                    cmd.Parameters.AddWithValue("@copy_created", (int)ArchiveState.CopyCreated);
+                    cmd.Parameters.AddWithValue("@moving", (int)ArchiveState.Moving);
+                    cmd.Parameters.AddWithValue("@uncertain", (int)ArchiveState.Uncertain);
 
                     using (var reader = cmd.ExecuteReader())
                     {
@@ -236,8 +241,8 @@ INSERT INTO message_state (
 
                 using (var cmd = _connection.CreateCommand())
                 {
-                    // CAS: Only allow transition from Pending(0) or re-asserting CopyCreated(1).
-                    // If already advanced to Moving(2) or Archived(3), do not regress.
+                    // CAS: Only allow transition from Pending or re-asserting CopyCreated.
+                    // If already advanced to Moving or Archived, do not regress.
                     cmd.CommandText = @"
 UPDATE message_state
 SET state = @state,
@@ -246,7 +251,7 @@ SET state = @state,
     updated_utc = @updated_utc
 WHERE account_smtp = @account_smtp 
   AND search_key_hex = @search_key_hex
-  AND state IN (0, 1);";
+  AND state IN (@pending, @copy_created);";
 
                     cmd.Parameters.AddWithValue("@state", (int)ArchiveState.CopyCreated);
                     cmd.Parameters.AddWithValue("@entry_id", copy.EntryId);
@@ -254,6 +259,8 @@ WHERE account_smtp = @account_smtp
                     cmd.Parameters.AddWithValue("@updated_utc", DateTime.UtcNow.ToString("o"));
                     cmd.Parameters.AddWithValue("@account_smtp", accountSmtp);
                     cmd.Parameters.AddWithValue("@search_key_hex", searchKeyHex);
+                    cmd.Parameters.AddWithValue("@pending", (int)ArchiveState.Pending);
+                    cmd.Parameters.AddWithValue("@copy_created", (int)ArchiveState.CopyCreated);
 
                     int rows = cmd.ExecuteNonQuery();
                     if (rows == 0)
@@ -310,20 +317,23 @@ WHERE account_smtp = @account_smtp AND search_key_hex = @search_key_hex;";
 
                 using (var cmd = _connection.CreateCommand())
                 {
-                    // CAS: Only allow transition from Pending(0), CopyCreated(1), Moving(2), or Uncertain(4).
-                    // Never allow downgrading terminal Archived(3) back to Moving.
+                    // CAS: Only allow transition from CopyCreated, Moving, or Uncertain.
+                    // Never allow downgrading terminal Archived back to Moving.
                     cmd.CommandText = @"
 UPDATE message_state
 SET state = @state,
     updated_utc = @updated_utc
 WHERE account_smtp = @account_smtp 
   AND search_key_hex = @search_key_hex
-  AND state IN (0, 1, 2, 4);";
+  AND state IN (@copy_created, @moving, @uncertain);";
 
                     cmd.Parameters.AddWithValue("@state", (int)ArchiveState.Moving);
                     cmd.Parameters.AddWithValue("@updated_utc", DateTime.UtcNow.ToString("o"));
                     cmd.Parameters.AddWithValue("@account_smtp", accountSmtp);
                     cmd.Parameters.AddWithValue("@search_key_hex", searchKeyHex);
+                    cmd.Parameters.AddWithValue("@copy_created", (int)ArchiveState.CopyCreated);
+                    cmd.Parameters.AddWithValue("@moving", (int)ArchiveState.Moving);
+                    cmd.Parameters.AddWithValue("@uncertain", (int)ArchiveState.Uncertain);
 
                     int rows = cmd.ExecuteNonQuery();
                     if (rows == 0)

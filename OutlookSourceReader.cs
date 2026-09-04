@@ -50,7 +50,9 @@ namespace OutlookJunkRescuer
                 table = junkFolder.GetTable();
                 columns = table.Columns;
 
+                try { columns.RemoveAll(); } catch { }
                 try { columns.Add("EntryID"); } catch { }
+                try { columns.Add("MessageClass"); } catch { }
                 try { columns.Add(MapiIdentity.SearchKeySchema); } catch { }
                 try { columns.Add(MapiIdentity.RecordKeySchema); } catch { }
 
@@ -60,6 +62,14 @@ namespace OutlookJunkRescuer
                     try
                     {
                         row = table.GetNextRow();
+
+                        string messageClass = row["MessageClass"] as string;
+                        if (string.IsNullOrEmpty(messageClass) ||
+                            !messageClass.StartsWith("IPM.Note", StringComparison.OrdinalIgnoreCase))
+                        {
+                            continue;
+                        }
+
                         string entryId = row["EntryID"] as string;
                         object rawSearch = row[MapiIdentity.SearchKeySchema];
                         object rawRecord = row[MapiIdentity.RecordKeySchema];
@@ -199,6 +209,13 @@ namespace OutlookJunkRescuer
 
             try
             {
+                string messageClass = mail.MessageClass;
+                if (string.IsNullOrEmpty(messageClass) ||
+                    !messageClass.StartsWith("IPM.Note", StringComparison.OrdinalIgnoreCase))
+                {
+                    return null;
+                }
+
                 string entryId = mail.EntryID;
                 string searchKey = MapiIdentity.GetSearchKeyHex(mail);
                 string recordKey = MapiIdentity.GetRecordKeyHex(mail);
