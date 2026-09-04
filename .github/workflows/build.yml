@@ -7,6 +7,9 @@ on:
       - '*'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest
@@ -129,3 +132,21 @@ jobs:
       with:
         name: OutlookJunkRescuer-Portable-Bat
         path: publish-portable/
+
+    # 9. 压缩并发布到 GitHub Releases（仅针对 Tag 触发）
+    - name: Publish GitHub Release
+      if: startsWith(github.ref, 'refs/tags/')
+      shell: pwsh
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        $tag = $env:GITHUB_REF_NAME
+        Write-Host "Packaging release assets for $tag..."
+        Compress-Archive -Path "publish-clickonce\*" -DestinationPath "OutlookJunkRescuer-$tag-ClickOnce.zip" -Force
+        Compress-Archive -Path "publish-portable\*" -DestinationPath "OutlookJunkRescuer-$tag-Portable.zip" -Force
+        Write-Host "Creating GitHub Release $tag..."
+        gh release create $tag `
+          "OutlookJunkRescuer-$tag-ClickOnce.zip" `
+          "OutlookJunkRescuer-$tag-Portable.zip" `
+          --title "OutlookJunkRescuer $tag" `
+          --generate-notes
