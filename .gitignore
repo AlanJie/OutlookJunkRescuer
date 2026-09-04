@@ -29,8 +29,12 @@ publish/
 *.log
 OutlookJunkRescuer.log
 
-## OS Files
-Thumbs.db
-ehthumbs.db
-Desktop.ini
-$RECYCLE.BIN/
+## Certificates & Signing Keys
+*.pfx
+*.p12
+*.cer
+
+## Publish Packages
+publish-clickonce/
+publish-portable/
+

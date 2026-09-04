@@ -216,3 +216,26 @@ The only intentionally accepted ownership gap is:
 A copy left in that window is not provably plugin-owned and is therefore never
 moved/deleted by recovery. This is preferred over risking mutation of a
 user-owned/unknown item.
+
+## 安装与分发 (Installation & Distribution)
+
+每次代码提交或发布时，GitHub Actions 均会自动编译并提供两种开箱即用的分发包（位于 Actions Artifacts 中）：
+
+### 方式一：ClickOnce 标准安装包（官方标准推荐）
+
+适用于希望像正规 Office 插件一样由 Office 统一托管、支持控制面板标准卸载的用户。
+
+1. 解压 `OutlookJunkRescuer-ClickOnce-Installer.zip` 到任意临时目录；
+2. 右键管理员运行 `install-cert.bat`（将自签名公钥导入当前用户的受信任根证书与受信任发布者，避免 Office VSTO 信任提示拦截）；
+3. 双击 `OutlookJunkRescuer.vsto`，在弹出的 Microsoft Office 提示框中点击“安装”即可；
+4. 卸载：直接在 Windows“设置” -> “应用和功能”（或控制面板“程序和功能”）中找到 `OutlookJunkRescuer` 卸载。
+
+### 方式二：便携免安装版（注册表一键安装，完全无需导入证书）
+
+适用于不希望向系统证书库导入自签名证书、希望绿色免安装的用户。通过 VSTO `|vstolocal` 本地加载标志，VSTO 运行时直接以全信任本地加载，无需任何证书验证。
+
+1. 将 `OutlookJunkRescuer-Portable-Bat.zip` 解压到你打算长期存放的文件夹（如 `C:\Tools\OutlookJunkRescuer`）；
+2. 双击运行 `install.bat`，即可一键注册至当前用户的 Outlook 插件列表；
+3. 打开 Classic Outlook 即可开始自动工作；
+4. 卸载：双击运行 `uninstall.bat` 即可一键清理注册表。
+

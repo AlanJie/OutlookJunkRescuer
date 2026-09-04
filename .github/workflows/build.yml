@@ -1,0 +1,99 @@
+name: Build and Package Outlook Junk Rescuer
+
+on:
+  push:
+    branches: [ "master", "main" ]
+  pull_request:
+    branches: [ "master", "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # 1. 补齐 GitHub Runner 镜像中缺失的 Office/VSTO 开发工作负载
+    - name: Install Office VSTO Build Tools
+      shell: pwsh
+      run: |
+        $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+        $installPath = & $vswhere -latest -property installationPath
+        Write-Host "Found Visual Studio at: $installPath"
+        Write-Host "Installing Microsoft.VisualStudio.Component.TeamOffice..."
+        $installer = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\setup.exe"
+        Start-Process -FilePath $installer `
+          -ArgumentList "modify --installPath `"$installPath`" --add Microsoft.VisualStudio.Component.TeamOffice --quiet --norestart" `
+          -Wait -NoNewWindow
+        Write-Host "Office VSTO Build Tools installed successfully."
+
+    # 2. 设置 MSBuild 工具链
+    - name: Setup MSBuild
+      uses: microsoft/setup-msbuild@v2
+
+    # 3. 还原 NuGet 依赖（System.Data.SQLite.Core）
+    - name: Restore NuGet Packages
+      run: msbuild OutlookJunkRescuer.csproj /t:Restore
+
+    # 4. 动态生成临时代码签名证书（无需在 Git 提交任何私钥）
+    - name: Create Self-Signed Signing Certificate
+      shell: pwsh
+      run: |
+        $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=OutlookJunkRescuer" -CertStoreLocation "Cert:\CurrentUser\My"
+        $pwd = New-Object System.Security.SecureString
+        Export-PfxCertificate -Cert $cert -FilePath "OutlookJunkRescuer_TemporaryKey.pfx" -Password $pwd -Force
+        Export-Certificate -Cert $cert -FilePath "OutlookJunkRescuer.cer" -Force
+        Write-Host "Generated certificate with thumbprint: $($cert.Thumbprint)"
+        "CERT_THUMBPRINT=$($cert.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+    # 5. 编译 Release 版本并生成 ClickOnce 发布包
+    - name: Build and Publish VSTO Addin
+      shell: pwsh
+      run: |
+        msbuild OutlookJunkRescuer.csproj `
+          /p:Configuration=Release `
+          "/p:ManifestCertificateThumbprint=$env:CERT_THUMBPRINT" `
+          "/p:CertificateThumbprint=$env:CERT_THUMBPRINT" `
+          /t:Build,Publish
+
+    # 6. 整理 ClickOnce 安装包（含一键信任证书脚本与公钥证书）
+    - name: Prepare ClickOnce Package
+      shell: pwsh
+      run: |
+        $clickOnceDir = "publish-clickonce"
+        New-Item -ItemType Directory -Path $clickOnceDir -Force | Out-Null
+        Copy-Item -Path "bin\Release\app.publish\*" -Destination $clickOnceDir -Recurse -Force
+        Copy-Item -Path "install-cert.bat" -Destination $clickOnceDir -Force
+        Copy-Item -Path "OutlookJunkRescuer.cer" -Destination $clickOnceDir -Force
+
+    # 6. 整理便携绿色版（含 install.bat 与 uninstall.bat）
+    - name: Prepare Portable Package
+      shell: pwsh
+      run: |
+        $portableDir = "publish-portable"
+        New-Item -ItemType Directory -Path $portableDir -Force | Out-Null
+        Copy-Item -Path "bin\Release\OutlookJunkRescuer.dll" -Destination $portableDir -Force
+        Copy-Item -Path "bin\Release\OutlookJunkRescuer.vsto" -Destination $portableDir -Force
+        Copy-Item -Path "bin\Release\OutlookJunkRescuer.dll.manifest" -Destination $portableDir -Force
+        Copy-Item -Path "bin\Release\System.Data.SQLite.dll" -Destination $portableDir -Force
+        Copy-Item -Path "bin\Release\Microsoft.Office.Tools.*.Utilities.dll" -Destination $portableDir -Force
+        Copy-Item -Path "bin\Release\x64" -Destination $portableDir -Recurse -Force
+        Copy-Item -Path "bin\Release\x86" -Destination $portableDir -Recurse -Force
+        Copy-Item -Path "install.bat" -Destination $portableDir -Force
+        Copy-Item -Path "uninstall.bat" -Destination $portableDir -Force
+
+    # 7. 上传 ClickOnce 标准安装包（官方推荐）
+    - name: Upload ClickOnce Installer Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: OutlookJunkRescuer-ClickOnce-Installer
+        path: publish-clickonce/
+
+    # 8. 上传便携免安装包（Bat 注册）
+    - name: Upload Portable Bat Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: OutlookJunkRescuer-Portable-Bat
+        path: publish-portable/
