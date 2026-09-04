@@ -209,6 +209,10 @@
     <Compile Include="StatusForm.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="DuplicateCleaner.cs" />
+    <Compile Include="DuplicateCleanupForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="SqliteStateStore.cs" />
     <None Include="OutlookJunkRescuer_TemporaryKey.pfx" Condition="Exists('OutlookJunkRescuer_TemporaryKey.pfx')" />
     <AppDesigner Include="Properties\" />

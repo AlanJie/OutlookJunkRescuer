@@ -49,6 +49,29 @@ namespace OutlookJunkRescuer
             }
         }
 
+        public void OnCleanDuplicatesClick(Office.IRibbonControl control)
+        {
+            var instance = ThisAddIn.Instance;
+            if (instance == null || instance.Application == null)
+                return;
+
+            try
+            {
+                using (var form = new DuplicateCleanupForm(instance.Application.Session))
+                {
+                    form.ShowDialog();
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    "无法打开重复副本清理窗口: " + ex.Message,
+                    "Outlook Junk Rescuer",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+            }
+        }
+
         private static string GetRibbonXml()
         {
             return @"<?xml version=""1.0"" encoding=""UTF-8""?>
@@ -58,12 +81,19 @@ namespace OutlookJunkRescuer
       <tab idMso=""TabMail"">
         <group id=""grpJunkRescuer"" label=""Junk Rescuer"">
           <button id=""btnJunkRescuerStatus""
-                  label=""Junk Rescuer""
+                  label=""运行状态""
                   size=""large""
                   imageMso=""AutoArchiveSettings""
-                  screentip=""Outlook Junk Rescuer 状态与诊断""
+                  screentip=""Outlook Junk Rescuer 运行状态与诊断""
                   supertip=""查看实时垃圾邮件防误判监控状态、本次与累计扫描统计，或手动触发即时归档扫描。""
                   onAction=""OnShowStatusClick"" />
+          <button id=""btnJunkRescuerDuplicates""
+                  label=""清理重复项""
+                  size=""large""
+                  imageMso=""CleanUpFolder""
+                  screentip=""跨设备重复归档副本清理""
+                  supertip=""检测因多台设备同时归档产生的良性重复副本，在坚守 Never-reduce-1->0 铁律下，将多余副本安全隔离至 Duplicate Trash。""
+                  onAction=""OnCleanDuplicatesClick"" />
         </group>
       </tab>
     </tabs>

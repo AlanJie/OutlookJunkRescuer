@@ -16,6 +16,7 @@ namespace OutlookJunkRescuer
         private Label _lblTotalStats;
         private Label _lblDbInfo;
         private Button _btnScanNow;
+        private Button _btnCleanDuplicates;
         private Button _btnOpenFolder;
         private Button _btnClose;
 
@@ -28,7 +29,7 @@ namespace OutlookJunkRescuer
         private void InitializeComponent()
         {
             this.Text = "Outlook Junk Rescuer — 运行状态与诊断控制台";
-            this.Size = new Size(580, 480);
+            this.Size = new Size(580, 500);
             this.StartPosition = FormStartPosition.CenterScreen;
             this.FormBorderStyle = FormBorderStyle.FixedDialog;
             this.MaximizeBox = false;
@@ -128,7 +129,7 @@ namespace OutlookJunkRescuer
             {
                 Text = "立即执行对账扫描 (&S)",
                 Location = new Point(15, 360),
-                Size = new Size(165, 34),
+                Size = new Size(160, 34),
                 BackColor = Color.FromArgb(0, 120, 215),
                 ForeColor = Color.White,
                 FlatStyle = FlatStyle.Flat,
@@ -139,10 +140,25 @@ namespace OutlookJunkRescuer
             _btnScanNow.Click += BtnScanNow_Click;
             this.Controls.Add(_btnScanNow);
 
+            _btnCleanDuplicates = new Button
+            {
+                Text = "清理重复归档副本 (&D)...",
+                Location = new Point(185, 360),
+                Size = new Size(180, 34),
+                BackColor = Color.FromArgb(16, 124, 65),
+                ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", 9F, FontStyle.Bold),
+                Cursor = Cursors.Hand
+            };
+            _btnCleanDuplicates.FlatAppearance.BorderSize = 0;
+            _btnCleanDuplicates.Click += BtnCleanDuplicates_Click;
+            this.Controls.Add(_btnCleanDuplicates);
+
             _btnOpenFolder = new Button
             {
                 Text = "打开数据与日志目录 (&O)",
-                Location = new Point(190, 360),
+                Location = new Point(15, 405),
                 Size = new Size(175, 34),
                 BackColor = Color.FromArgb(225, 225, 225),
                 ForeColor = Color.Black,
@@ -156,7 +172,7 @@ namespace OutlookJunkRescuer
             _btnClose = new Button
             {
                 Text = "关闭 (&C)",
-                Location = new Point(445, 360),
+                Location = new Point(445, 405),
                 Size = new Size(105, 34),
                 BackColor = Color.FromArgb(225, 225, 225),
                 ForeColor = Color.Black,
@@ -166,6 +182,29 @@ namespace OutlookJunkRescuer
             };
             _btnClose.Click += (s, e) => this.Close();
             this.Controls.Add(_btnClose);
+        }
+
+        private void BtnCleanDuplicates_Click(object sender, EventArgs e)
+        {
+            var instance = ThisAddIn.Instance;
+            if (instance == null || instance.Application == null)
+                return;
+
+            try
+            {
+                using (var form = new DuplicateCleanupForm(instance.Application.Session))
+                {
+                    form.ShowDialog(this);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    "无法打开重复副本清理窗口: " + ex.Message,
+                    "Outlook Junk Rescuer",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+            }
         }
 
         private void RefreshData()

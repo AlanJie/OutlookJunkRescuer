@@ -480,7 +480,8 @@ namespace OutlookJunkRescuer
                 _archiveWriter.StampOwnedCopy(
                     ownedCopy,
                     state.OperationId,
-                    state.SearchKeyHex);
+                    state.SearchKeyHex,
+                    _state.GetOrCreateReplicaId());
 
                 WorkingCopyDescriptor working =
                     _ownedCopies.Describe(ownedCopy);

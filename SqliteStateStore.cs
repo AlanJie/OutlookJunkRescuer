@@ -71,6 +71,11 @@ CREATE INDEX IF NOT EXISTS idx_message_state_account_state
 
 CREATE INDEX IF NOT EXISTS idx_message_state_account_store_state
     ON message_state(account_smtp, store_id, state);
+
+CREATE TABLE IF NOT EXISTS app_settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 ");
 
                 if (!ColumnExistsUnlocked("message_state", "archive_record_key_hex"))
@@ -534,6 +539,54 @@ FROM message_state
         {
             if (_disposed)
                 throw new ObjectDisposedException(nameof(SqliteStateStore));
+        }
+
+        public string GetSetting(string key)
+        {
+            lock (_gate)
+            {
+                ThrowIfDisposed();
+                using (var cmd = _connection.CreateCommand())
+                {
+                    cmd.CommandText = "SELECT value FROM app_settings WHERE key = @key;";
+                    cmd.Parameters.AddWithValue("@key", key);
+                    object val = cmd.ExecuteScalar();
+                    return val == null || val == DBNull.Value ? null : Convert.ToString(val);
+                }
+            }
+        }
+
+        public void SetSetting(string key, string value)
+        {
+            lock (_gate)
+            {
+                ThrowIfDisposed();
+                using (var cmd = _connection.CreateCommand())
+                {
+                    cmd.CommandText = @"
+INSERT OR REPLACE INTO app_settings (key, value)
+VALUES (@key, @value);";
+                    cmd.Parameters.AddWithValue("@key", key);
+                    cmd.Parameters.AddWithValue("@value", value);
+                    cmd.ExecuteNonQuery();
+                }
+            }
+        }
+
+        public string GetOrCreateReplicaId()
+        {
+            lock (_gate)
+            {
+                ThrowIfDisposed();
+                const string replicaKey = "replica_id";
+                string existing = GetSetting(replicaKey);
+                if (!string.IsNullOrEmpty(existing))
+                    return existing;
+
+                string newId = Guid.NewGuid().ToString("D");
+                SetSetting(replicaKey, newId);
+                return newId;
+            }
         }
 
         public void Dispose()

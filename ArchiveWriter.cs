@@ -10,8 +10,17 @@ namespace OutlookJunkRescuer
     internal sealed class ArchiveWriter
     {
         public const string ArchiveFolderName = "Junk Archive";
+        public const string DuplicateTrashFolderName = "Duplicate Trash";
+
+        public const string PluginIdProperty = "OJRPluginId";
+        public const string ArchiveKeyProperty = "OJRArchiveKey";
+        public const string CopyIdProperty = "OJRCopyId";
+        public const string ReplicaIdProperty = "OJRReplicaId";
+
         public const string ArchiveIdProperty = "OJRArchiveId";
         public const string SearchKeyProperty = "OJRSearchKey";
+
+        public const string PluginIdValue = "OutlookJunkRescuer";
 
         public Outlook.MAPIFolder GetOrCreateArchiveFolder(
             Outlook.MAPIFolder inbox)
@@ -59,6 +68,50 @@ namespace OutlookJunkRescuer
             }
         }
 
+        public Outlook.MAPIFolder GetOrCreateDuplicateTrashFolder(
+            Outlook.MAPIFolder archive)
+        {
+            Outlook.Folders folders = null;
+
+            try
+            {
+                folders = archive.Folders;
+
+                for (int i = 1; i <= folders.Count; i++)
+                {
+                    Outlook.MAPIFolder candidate = null;
+
+                    try
+                    {
+                        candidate = folders[i];
+
+                        if (string.Equals(
+                            candidate.Name,
+                            DuplicateTrashFolderName,
+                            StringComparison.OrdinalIgnoreCase))
+                        {
+                            Outlook.MAPIFolder result = candidate;
+                            candidate = null;
+                            return result;
+                        }
+                    }
+                    finally
+                    {
+                        ComUtil.Release(candidate);
+                    }
+                }
+
+                Outlook.MAPIFolder created =
+                    folders.Add(DuplicateTrashFolderName, Type.Missing);
+
+                return created;
+            }
+            finally
+            {
+                ComUtil.Release(folders);
+            }
+        }
+
         public ArchiveMatch FindByOperationId(
             Outlook.MAPIFolder archive,
             string operationId)
@@ -82,8 +135,18 @@ namespace OutlookJunkRescuer
         public void StampOwnedCopy(
             Outlook.MailItem copy,
             string operationId,
-            string searchKeyHex)
+            string searchKeyHex,
+            string replicaId = null)
         {
+            SetTextProperty(copy, PluginIdProperty, PluginIdValue);
+            SetTextProperty(copy, ArchiveKeyProperty, searchKeyHex);
+            SetTextProperty(copy, CopyIdProperty, operationId);
+            if (!string.IsNullOrEmpty(replicaId))
+            {
+                SetTextProperty(copy, ReplicaIdProperty, replicaId);
+            }
+
+            // Maintain backward compatibility properties for v1.0.0
             SetTextProperty(copy, ArchiveIdProperty, operationId);
             SetTextProperty(copy, SearchKeyProperty, searchKeyHex);
             copy.Save();
@@ -193,6 +256,10 @@ namespace OutlookJunkRescuer
             // Restrict. It does NOT prove that a Cached Exchange/Outlook.com
             // folder is fully synchronized. Therefore a null query result is
             // observational, not globally authoritative during recovery.
+            EnsureFolderField(archive, PluginIdProperty);
+            EnsureFolderField(archive, ArchiveKeyProperty);
+            EnsureFolderField(archive, CopyIdProperty);
+            EnsureFolderField(archive, ReplicaIdProperty);
             EnsureFolderField(archive, ArchiveIdProperty);
             EnsureFolderField(archive, SearchKeyProperty);
         }

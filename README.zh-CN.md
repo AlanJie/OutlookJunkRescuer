@@ -112,12 +112,41 @@ Archived (归档完成)
 - 支持随时在控制台中手动触发全量对账扫描。
 
 ### 3. 功能区与诊断控制台 (Ribbon & Status Console)
-- **Ribbon 菜单**：在 Outlook 主界面“开始 (邮件)”选项卡中内置原生 “Junk Rescuer” 按钮；
+- **Ribbon 菜单**：在 Outlook 主界面“开始 (邮件)”选项卡中内置原生 “Junk Rescuer” 分组，包含：
+  - **运行状态**：唤起运行状态与诊断控制台；
+  - **清理重复项**：唤起跨设备重复副本检测与清理控制台。
 - **诊断控制台 (`StatusForm`)**：
   - 实时保护状态与当前受保护的邮箱账户列表；
   - 最近一次扫描时间、耗时、处理状态统计（Archived / Skipped / Uncertain / Failed 以及实时拦截计数）；
   - 本地 SQLite 状态数据库绝对路径与文件大小；
-  - 一键执行对账扫描与一键打开日志和数据存储目录。
+  - 一键执行对账扫描、一键打开清理重复副本窗口、一键打开日志和数据存储目录。
+
+---
+
+## 多设备安全归档与保守重复副本清理
+
+### 1. 产品核心原则：“永不漏备 (Never-Miss)”优先于“绝不重复 (Never-Duplicate)”
+当同一邮箱在多台设备（如 PC-A 与 PC-B）上同时运行 OutlookJunkRescuer 时：
+- 每台设备各自保证本地的崩溃安全与 SQLite 事务状态机；
+- 多台机器对同一封垃圾邮件独立创建归档副本属于模型显式允许的**良性副本**；
+- **$O(\text{Junk})$ 日常运行铁律**：日常实时归档与启动对账**完全无需扫描 `Junk Archive` 历史目录**。即便归档文件夹累积了 10 万+ 历史邮件，日常启动与归档性能与历史条目完全解耦，毫秒级响应。
+
+### 2. 副本元数据与稳定设备标识 (ReplicaId)
+每份归档副本均打上专用 UserProperties 元数据：
+- `OJRPluginId`：`"OutlookJunkRescuer"`（所有权校验）；
+- `OJRArchiveKey`：十六进制格式的 `PR_SEARCH_KEY`；
+- `OJRCopyId`：单次副本唯一 GUID；
+- `OJRReplicaId`：当前机器的持久化稳定 UUID（首次运行自动生成并持久化在本地 SQLite 中）。
+- 保持对 v1.0.0 旧副本属性（`OJRArchiveId` 与 `OJRSearchKey`）的完全兼容。
+
+### 3. 保守重复副本清理 (`DuplicateCleanupForm`)
+- **人工显式触发**：仅在用户显式点击“扫描重复项”时，才对 `Junk Archive` 执行轻量 `Table` 遍历。
+- **保守重验证原则 (Conservative Revalidation)**：
+  - 验证留存的 Winner 副本完好且位于 `Junk Archive`；
+  - 逐一重新验证每个待移动的 Loser 副本；
+  - **Never reduce 1 -> 0 铁律**：硬性保证归档目录中任何邮件的有效副本绝不归零；
+  - 多余副本移动至 `收件箱\Junk Archive\Duplicate Trash` 软隔离目录，不执行不可逆的物理删除；
+  - 提供一键在 Outlook 中审查垃圾桶、以及确认后清空垃圾桶的功能。
 
 ---
 
@@ -204,12 +233,14 @@ msbuild OutlookJunkRescuer.csproj /t:Build /p:Configuration=Release
 
 - `ThisAddIn.cs` — 插件生命周期管理、事件监听挂载与启动延时扫描调度。
 - `JunkFolderWatcher.cs` — 垃圾箱实时 `ItemAdd` 事件监听器与 COM 强引用持有。
-- `Ribbon.cs` — Outlook Explorer 功能区 (Ribbon) 扩展与“Junk Rescuer”按钮定义。
+- `Ribbon.cs` — Outlook Explorer 功能区 (Ribbon) 扩展与菜单按钮定义。
 - `StatusForm.cs` — 运行状态与诊断信息可视化控制台窗口。
+- `DuplicateCleanupForm.cs` — 跨设备重复归档副本可视化检测与清理窗口。
+- `DuplicateCleaner.cs` — 快速扫表与保守重验证重复项清理核心引擎。
 - `ArchiveEngine.cs` — 防崩溃持久化状态机与异常恢复引擎。
 - `OutlookSourceReader.cs` — 垃圾箱源邮件的狭窄只读与 Copy 抽象。
 - `OwnedCopyLocator.cs` — 确权副本校验与安全重新定位器。
-- `ArchiveWriter.cs` — 仅针对插件专属托管副本的唯一变更写入层。
+- `ArchiveWriter.cs` — 仅针对插件专属托管副本的唯一变更写入层与 Duplicate Trash 维护。
 - `MapiIdentity.cs` — MAPI `PR_SEARCH_KEY` 与 `PR_RECORD_KEY` 读取支持。
 - `SqliteStateStore.cs` — 单连接 WAL 事务日志持久化存储与架构升级。
 - `Models.cs` — 状态枚举、数据契约与描述符定义。

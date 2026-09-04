@@ -112,12 +112,41 @@ Upon startup, the add-in attaches a `JunkFolderWatcher` to the Junk folder of ev
 - Can be triggered manually on-demand at any time from the diagnostics console.
 
 ### 3. Ribbon UI & Diagnostics Console (`StatusForm`)
-- **Native Ribbon Button**: Embedded seamlessly into the Outlook `Home (Mail)` tab as **Junk Rescuer**.
+- **Native Ribbon Group**: Embedded seamlessly into the Outlook `Home (Mail)` tab as **Junk Rescuer**, offering:
+  - **运行状态 (Running Status)**: Opens the diagnostics console;
+  - **清理重复项 (Clean Duplicates)**: Opens the cross-device duplicate cleanup console.
 - **Status & Diagnostics Console**:
   - Displays real-time protection status and list of monitored mailbox accounts;
   - Shows metrics from the latest sweep (time, duration, archived, skipped, uncertain, and failed counts, plus real-time intercept counter);
   - Displays SQLite database path and active file size;
-  - Action buttons to trigger an immediate full reconciliation sweep or open the local logs and database folder in Explorer.
+  - Action buttons to trigger an immediate full reconciliation sweep, launch duplicate cleanup, or open local logs and data in Explorer.
+
+---
+
+## Multi-Device Semantics & Conservative Duplicate Cleanup
+
+### 1. Philosophy: "Never-Miss" over "Never-Duplicate"
+When multiple devices (e.g., PC-A and PC-B) run OutlookJunkRescuer on the same email account:
+- Each device maintains its own local crash-safe SQLite journal and state machine;
+- Multiple devices independently creating archival copies of the same logical message is explicitly supported and treated as harmless;
+- **$O(\text{Junk})$ Runtime Invariant**: Everyday real-time archival and startup sweeps never scan the `Junk Archive` folder. Performance remains completely unaffected even if the archive folder grows to 100,000+ items.
+
+### 2. Copy Metadata & Stable Replica ID
+Every plugin-owned copy is stamped with:
+- `OJRPluginId`: `"OutlookJunkRescuer"` (plugin ownership validation);
+- `OJRArchiveKey`: Hexadecimal representation of `PR_SEARCH_KEY`;
+- `OJRCopyId`: Unique copy identifier GUID;
+- `OJRReplicaId`: Persistent unique device identifier UUID (generated once and stored in local SQLite).
+- Retains legacy `OJRArchiveId` and `OJRSearchKey` for backward compatibility with v1.0.0.
+
+### 3. Conservative Duplicate Cleanup (`DuplicateCleanupForm`)
+- **User-Initiated**: Scans `Junk Archive` via lightweight `Table` iteration only when explicitly invoked by the user.
+- **Conservative Revalidation**:
+  - Validates the winner copy remains intact and inside `Junk Archive`;
+  - Re-verifies every loser copy before moving;
+  - **Never reduce 1 -> 0 Invariant**: Guarantees that at least one valid copy always remains in `Junk Archive`;
+  - Moves redundant copies to the `Junk Archive\Duplicate Trash` subfolder (soft tombstone) rather than permanently deleting them;
+  - Provides one-click access to review or permanently empty `Duplicate Trash`.
 
 ---
 
@@ -206,10 +235,12 @@ Native SQLite binaries are deployed automatically to `bin\Release\x64` and `bin\
 - `JunkFolderWatcher.cs` — Real-time `ItemAdd` event listener for Junk folders with COM GC protection.
 - `Ribbon.cs` — Outlook Explorer Ribbon extension and "Junk Rescuer" button definition.
 - `StatusForm.cs` — WinForms status and diagnostics console dialog.
+- `DuplicateCleanupForm.cs` — Visual cross-device duplicate scanning and cleanup dialog.
+- `DuplicateCleaner.cs` — Fast Table scanning and conservative duplicate revalidation engine.
 - `ArchiveEngine.cs` — Durable state machine and crash recovery policy.
 - `OutlookSourceReader.cs` — Narrow read/Copy-only source inspection.
 - `OwnedCopyLocator.cs` — Validates and reopens provably plugin-owned copies.
-- `ArchiveWriter.cs` — Mutation layer for plugin-owned copies.
+- `ArchiveWriter.cs` — Mutation layer for plugin-owned copies and Duplicate Trash.
 - `MapiIdentity.cs` — Helper for extracting `PR_SEARCH_KEY` and `PR_RECORD_KEY`.
 - `SqliteStateStore.cs` — Single-connection WAL journal and schema migration.
 - `Models.cs` — Data and descriptor types.
