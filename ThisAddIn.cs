@@ -50,11 +50,10 @@ namespace OutlookJunkRescuer
             try
             {
                 _engine = new ArchiveEngine(Application.Session, _stateStore);
-                AttachWatchers();
             }
             catch (Exception ex)
             {
-                Logger.Write("Failed to initialize engine or watchers: " + ex);
+                Logger.Write("Failed to initialize engine: " + ex);
             }
 
             _startupTimer = new Timer
@@ -65,7 +64,7 @@ namespace OutlookJunkRescuer
             _startupTimer.Tick += StartupTimer_Tick;
             _startupTimer.Start();
 
-            Logger.Write("Add-in loaded; real-time protection active; read-only-source sweep scheduled.");
+            Logger.Write("Add-in loaded; startup delay scheduled (15s).");
         }
 
         private void AttachWatchers()
@@ -159,6 +158,14 @@ namespace OutlookJunkRescuer
         {
             if (_engine != null)
             {
+                lock (_watchers)
+                {
+                    if (_watchers.Count == 0)
+                    {
+                        AttachWatchers();
+                    }
+                }
+
                 Logger.Write("Manual full sweep triggered by user.");
                 _engine.RunStartupSweep();
             }
@@ -170,6 +177,17 @@ namespace OutlookJunkRescuer
 
             try
             {
+                // Defer folder resolution and watcher attachment until after the 15-second
+                // startup delay, ensuring OST folder hierarchy is initialized before we look
+                // for or create "Junk Archive".
+                lock (_watchers)
+                {
+                    if (_watchers.Count == 0)
+                    {
+                        AttachWatchers();
+                    }
+                }
+
                 _engine?.RunStartupSweep();
             }
             catch (Exception ex)

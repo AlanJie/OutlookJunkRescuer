@@ -206,8 +206,8 @@ namespace OutlookJunkRescuer
 
                 // Ensure startup and reconciliation sweeps are driven by durable journal state:
                 // Reconcile union of currently visible Junk SearchKeys and any non-terminal states
-                // (Pending, CopyCreated, Moving, Uncertain) recorded in SQLite.
-                List<MessageState> nonTerminalStates = _state.GetNonTerminalStates(smtp);
+                // (Pending, CopyCreated, Moving, Uncertain) recorded in SQLite for this store.
+                List<MessageState> nonTerminalStates = _state.GetNonTerminalStates(smtp, storeId);
 
                 var allSearchKeys = new HashSet<string>(StringComparer.Ordinal);
                 foreach (var k in itemsBySearchKey.Keys)

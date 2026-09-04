@@ -177,11 +177,17 @@ namespace OutlookJunkRescuer
                 return;
             }
 
+            var stats = ArchiveEngine.Statistics;
             var accounts = instance.GetWatchedAccounts();
             if (accounts.Count > 0)
             {
                 _lblStatus.Text = $"运行状态: 🟢 正常保护中（已实时监听 {accounts.Count} 个账户）";
                 _lblAccounts.Text = "监听账户:\n  " + string.Join(", ", accounts);
+            }
+            else if (stats.LastSweepTime == DateTime.MinValue)
+            {
+                _lblStatus.Text = "运行状态: ⏳ 启动初始化中（启动 15 秒后将自动挂载监听并执行首次对账）";
+                _lblAccounts.Text = "监听账户: 等待 15 秒启动延迟中...";
             }
             else
             {
@@ -189,7 +195,6 @@ namespace OutlookJunkRescuer
                 _lblAccounts.Text = "监听账户: 无支持的个人邮箱账户";
             }
 
-            var stats = ArchiveEngine.Statistics;
             lock (stats)
             {
                 if (stats.LastSweepTime != DateTime.MinValue)

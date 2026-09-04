@@ -68,6 +68,9 @@ CREATE INDEX IF NOT EXISTS idx_message_state_state
 
 CREATE INDEX IF NOT EXISTS idx_message_state_account_state
     ON message_state(account_smtp, state);
+
+CREATE INDEX IF NOT EXISTS idx_message_state_account_store_state
+    ON message_state(account_smtp, store_id, state);
 ");
 
                 if (!ColumnExistsUnlocked("message_state", "archive_record_key_hex"))
@@ -123,7 +126,7 @@ WHERE account_smtp = @account_smtp AND search_key_hex = @search_key_hex;";
             }
         }
 
-        public List<MessageState> GetNonTerminalStates(string accountSmtp)
+        public List<MessageState> GetNonTerminalStates(string accountSmtp, string storeId)
         {
             lock (_gate)
             {
@@ -134,8 +137,10 @@ WHERE account_smtp = @account_smtp AND search_key_hex = @search_key_hex;";
                 {
                     cmd.CommandText = SelectSql + @"
 WHERE account_smtp = @account_smtp 
+  AND store_id = @store_id
   AND state IN (@pending, @copy_created, @moving, @uncertain);";
                     cmd.Parameters.AddWithValue("@account_smtp", accountSmtp);
+                    cmd.Parameters.AddWithValue("@store_id", storeId);
                     cmd.Parameters.AddWithValue("@pending", (int)ArchiveState.Pending);
                     cmd.Parameters.AddWithValue("@copy_created", (int)ArchiveState.CopyCreated);
                     cmd.Parameters.AddWithValue("@moving", (int)ArchiveState.Moving);
@@ -297,13 +302,18 @@ UPDATE message_state
 SET working_copy_entry_id = @entry_id,
     working_copy_record_key_hex = @record_key,
     updated_utc = @updated_utc
-WHERE account_smtp = @account_smtp AND search_key_hex = @search_key_hex;";
+WHERE account_smtp = @account_smtp 
+  AND search_key_hex = @search_key_hex
+  AND state IN (@copy_created, @moving, @uncertain);";
 
                     cmd.Parameters.AddWithValue("@entry_id", copy.EntryId);
                     cmd.Parameters.AddWithValue("@record_key", copy.RecordKeyHex);
                     cmd.Parameters.AddWithValue("@updated_utc", DateTime.UtcNow.ToString("o"));
                     cmd.Parameters.AddWithValue("@account_smtp", accountSmtp);
                     cmd.Parameters.AddWithValue("@search_key_hex", searchKeyHex);
+                    cmd.Parameters.AddWithValue("@copy_created", (int)ArchiveState.CopyCreated);
+                    cmd.Parameters.AddWithValue("@moving", (int)ArchiveState.Moving);
+                    cmd.Parameters.AddWithValue("@uncertain", (int)ArchiveState.Uncertain);
                     RequireSingleRow(cmd.ExecuteNonQuery(), "RefreshWorkingCopyLocator");
                 }
             }
