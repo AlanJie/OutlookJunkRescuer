@@ -38,3 +38,7 @@ OutlookJunkRescuer.log
 publish-clickonce/
 publish-portable/
 
+## Antigravity / AI Agent Workspace Config
+.agents/
+
+
