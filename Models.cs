@@ -9,7 +9,8 @@ namespace OutlookJunkRescuer
         Archived = 1,
         CopyCreated = 2,
         Moving = 3,
-        Uncertain = 4
+        Uncertain = 4,
+        SourceGone = 5
     }
 
     internal sealed class SourceMessageDescriptor

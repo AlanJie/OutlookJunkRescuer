@@ -417,6 +417,7 @@ namespace OutlookJunkRescuer
                         return;
 
                     case ArchiveState.Archived:
+                    case ArchiveState.SourceGone:
                         skipped++;
                         return;
 
@@ -474,6 +475,12 @@ namespace OutlookJunkRescuer
                 }
 
                 ownedCopy = _source.CreateCopy(source);
+                if (ownedCopy == null)
+                {
+                    _state.MarkSourceGone(source.AccountSmtp, source.SearchKeyHex);
+                    Logger.Write($"[{source.AccountSmtp}] Source item is no longer in Junk; marked SourceGone for SearchKey {source.SearchKeyHex}.");
+                    return;
+                }
 
                 // Copy() -> marker Save() is the only unavoidable ownership gap.
                 // If killed there, the unmarked orphan is never mutated later.

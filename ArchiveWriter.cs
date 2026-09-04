@@ -10,12 +10,14 @@ namespace OutlookJunkRescuer
     internal sealed class ArchiveWriter
     {
         public const string ArchiveFolderName = "Junk Archive";
-        public const string DuplicateTrashFolderName = "Duplicate Trash";
+        public const string DuplicateTrashFolderName = "OutlookJunkRescuer Duplicate Trash";
+        public const string LegacyDuplicateTrashFolderName = "Duplicate Trash";
 
         public const string PluginIdProperty = "OJRPluginId";
         public const string ArchiveKeyProperty = "OJRArchiveKey";
         public const string CopyIdProperty = "OJRCopyId";
         public const string ReplicaIdProperty = "OJRReplicaId";
+        public const string CreatedUtcProperty = "OJRCreatedUtc";
 
         public const string ArchiveIdProperty = "OJRArchiveId";
         public const string SearchKeyProperty = "OJRSearchKey";
@@ -80,6 +82,7 @@ namespace OutlookJunkRescuer
             {
                 folders = archive.Folders;
 
+                // Prefer namespaced folder name
                 for (int i = 1; i <= folders.Count; i++)
                 {
                     Outlook.MAPIFolder candidate = null;
@@ -91,6 +94,31 @@ namespace OutlookJunkRescuer
                         if (string.Equals(
                             candidate.Name,
                             DuplicateTrashFolderName,
+                            StringComparison.OrdinalIgnoreCase))
+                        {
+                            Outlook.MAPIFolder result = candidate;
+                            candidate = null;
+                            return result;
+                        }
+                    }
+                    finally
+                    {
+                        ComUtil.Release(candidate);
+                    }
+                }
+
+                // Fallback to legacy folder name if it already exists
+                for (int i = 1; i <= folders.Count; i++)
+                {
+                    Outlook.MAPIFolder candidate = null;
+
+                    try
+                    {
+                        candidate = folders[i];
+
+                        if (string.Equals(
+                            candidate.Name,
+                            LegacyDuplicateTrashFolderName,
                             StringComparison.OrdinalIgnoreCase))
                         {
                             Outlook.MAPIFolder result = candidate;
@@ -137,23 +165,6 @@ namespace OutlookJunkRescuer
             }
         }
 
-        public bool DeleteDuplicateTrashFolder(Outlook.MAPIFolder archive)
-        {
-            Outlook.MAPIFolder trash = FindDuplicateTrashFolder(archive);
-            if (trash == null)
-                return false;
-
-            try
-            {
-                trash.Delete();
-                return true;
-            }
-            finally
-            {
-                ComUtil.Release(trash);
-            }
-        }
-
         public ArchiveMatch FindByOperationId(
             Outlook.MAPIFolder archive,
             string operationId)
@@ -183,6 +194,7 @@ namespace OutlookJunkRescuer
             SetTextProperty(copy, PluginIdProperty, PluginIdValue);
             SetTextProperty(copy, ArchiveKeyProperty, searchKeyHex);
             SetTextProperty(copy, CopyIdProperty, operationId);
+            SetTextProperty(copy, CreatedUtcProperty, DateTime.UtcNow.ToString("o"));
             if (!string.IsNullOrEmpty(replicaId))
             {
                 SetTextProperty(copy, ReplicaIdProperty, replicaId);
@@ -302,6 +314,7 @@ namespace OutlookJunkRescuer
             EnsureFolderField(archive, ArchiveKeyProperty);
             EnsureFolderField(archive, CopyIdProperty);
             EnsureFolderField(archive, ReplicaIdProperty);
+            EnsureFolderField(archive, CreatedUtcProperty);
             EnsureFolderField(archive, ArchiveIdProperty);
             EnsureFolderField(archive, SearchKeyProperty);
         }

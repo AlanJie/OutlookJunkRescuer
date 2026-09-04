@@ -291,6 +291,33 @@ WHERE account_smtp = @account_smtp
             }
         }
 
+        public void MarkSourceGone(string accountSmtp, string searchKeyHex)
+        {
+            lock (_gate)
+            {
+                ThrowIfDisposed();
+
+                using (var cmd = _connection.CreateCommand())
+                {
+                    cmd.CommandText = @"
+UPDATE message_state
+SET state = @state,
+    updated_utc = @updated_utc
+WHERE account_smtp = @account_smtp 
+  AND search_key_hex = @search_key_hex
+  AND state = @pending;";
+
+                    cmd.Parameters.AddWithValue("@state", (int)ArchiveState.SourceGone);
+                    cmd.Parameters.AddWithValue("@updated_utc", DateTime.UtcNow.ToString("o"));
+                    cmd.Parameters.AddWithValue("@account_smtp", accountSmtp);
+                    cmd.Parameters.AddWithValue("@search_key_hex", searchKeyHex);
+                    cmd.Parameters.AddWithValue("@pending", (int)ArchiveState.Pending);
+
+                    cmd.ExecuteNonQuery();
+                }
+            }
+        }
+
         public void RefreshWorkingCopyLocator(
             string accountSmtp,
             string searchKeyHex,

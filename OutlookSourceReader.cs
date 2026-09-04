@@ -189,6 +189,45 @@ namespace OutlookJunkRescuer
                         "The source EntryID resolved to a different MAPI record.");
                 }
 
+                // Verify the source item is still in the Junk folder.
+                // If the user marked it as "Not Junk" or moved it, do not copy.
+                Outlook.Store store = null;
+                Outlook.MAPIFolder junkFolder = null;
+                object parentObj = null;
+
+                try
+                {
+                    store = _session.GetStoreFromID(source.StoreId);
+                    if (store == null)
+                        return null;
+
+                    junkFolder = store.GetDefaultFolder(Outlook.OlDefaultFolders.olFolderJunk);
+                    if (junkFolder == null)
+                        return null;
+
+                    parentObj = original.Parent;
+                    var parentFolder = parentObj as Outlook.MAPIFolder;
+                    if (parentFolder == null)
+                        return null;
+
+                    string parentEntryId = parentFolder.EntryID;
+                    string junkEntryId = junkFolder.EntryID;
+
+                    if (string.IsNullOrEmpty(parentEntryId) ||
+                        string.IsNullOrEmpty(junkEntryId) ||
+                        !_session.CompareEntryIDs(parentEntryId, junkEntryId))
+                    {
+                        // Source item has moved out of Junk
+                        return null;
+                    }
+                }
+                finally
+                {
+                    ComUtil.Release(parentObj);
+                    ComUtil.Release(junkFolder);
+                    ComUtil.Release(store);
+                }
+
                 // The only operation this adapter performs on the source object.
                 return (Outlook.MailItem)original.Copy();
             }
