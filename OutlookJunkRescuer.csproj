@@ -80,6 +80,7 @@
     <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
     <DefineConstants>$(DefineConstants);DEBUG;TRACE</DefineConstants>
     <WarningLevel>4</WarningLevel>
+    <NoWarn>$(NoWarn);1762</NoWarn>
   </PropertyGroup>
   <!--
     This section defines properties that are set when the "Release" configuration is selected.
@@ -104,6 +105,7 @@
     <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
     <DefineConstants>$(DefineConstants);TRACE</DefineConstants>
     <WarningLevel>4</WarningLevel>
+    <NoWarn>$(NoWarn);1762</NoWarn>
   </PropertyGroup>
   <!--
     This section specifies references for the project.
@@ -148,7 +150,7 @@
   <ItemGroup>
     <Reference Include="Office, Version=15.0.0.0, Culture=neutral, PublicKeyToken=71e9bce111e9429c">
       <Private>False</Private>
-      <EmbedInteropTypes>False</EmbedInteropTypes>
+      <EmbedInteropTypes>true</EmbedInteropTypes>
     </Reference>
   </ItemGroup>
   <ItemGroup>
