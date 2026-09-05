@@ -29,7 +29,7 @@ namespace OutlookJunkRescuer
         private void InitializeComponent()
         {
             this.Text = "Outlook Junk Rescuer — 运行状态与诊断控制台";
-            this.Size = new Size(580, 500);
+            this.Size = new Size(640, 520);
             this.StartPosition = FormStartPosition.CenterScreen;
             this.FormBorderStyle = FormBorderStyle.FixedDialog;
             this.MaximizeBox = false;
@@ -41,23 +41,23 @@ namespace OutlookJunkRescuer
             var grpProtection = new GroupBox
             {
                 Text = " 保护与监听状态 (Real-Time Protection) ",
-                Location = new Point(15, 12),
-                Size = new Size(535, 105),
+                Location = new Point(16, 12),
+                Size = new Size(592, 110),
                 Font = new Font("Segoe UI", 9F, FontStyle.Bold)
             };
 
             _lblStatus = new Label
             {
-                Location = new Point(15, 25),
-                Size = new Size(505, 20),
+                Location = new Point(15, 24),
+                Size = new Size(560, 22),
                 Font = new Font("Segoe UI", 9F, FontStyle.Regular),
                 Text = "运行状态: 正在加载..."
             };
 
             _lblAccounts = new Label
             {
-                Location = new Point(15, 50),
-                Size = new Size(505, 45),
+                Location = new Point(15, 48),
+                Size = new Size(560, 52),
                 Font = new Font("Segoe UI", 9F, FontStyle.Regular),
                 Text = "监听账户: 正在检测..."
             };
@@ -70,31 +70,31 @@ namespace OutlookJunkRescuer
             var grpStats = new GroupBox
             {
                 Text = " 归档与统计数据 (Statistics) ",
-                Location = new Point(15, 125),
-                Size = new Size(535, 115),
+                Location = new Point(16, 130),
+                Size = new Size(592, 135),
                 Font = new Font("Segoe UI", 9F, FontStyle.Bold)
             };
 
             _lblLastSweep = new Label
             {
-                Location = new Point(15, 25),
-                Size = new Size(505, 20),
+                Location = new Point(15, 24),
+                Size = new Size(560, 22),
                 Font = new Font("Segoe UI", 9F, FontStyle.Regular),
                 Text = "上次全量对账: 从未执行"
             };
 
             _lblSweepStats = new Label
             {
-                Location = new Point(15, 50),
-                Size = new Size(505, 20),
+                Location = new Point(15, 48),
+                Size = new Size(560, 42),
                 Font = new Font("Segoe UI", 9F, FontStyle.Regular),
                 Text = "本次扫描成果: -"
             };
 
             _lblTotalStats = new Label
             {
-                Location = new Point(15, 75),
-                Size = new Size(505, 25),
+                Location = new Point(15, 96),
+                Size = new Size(560, 24),
                 Font = new Font("Segoe UI", 9F, FontStyle.Regular),
                 Text = "会话累计归档: 0 封 (含实时拦截: 0 封)"
             };
@@ -108,15 +108,15 @@ namespace OutlookJunkRescuer
             var grpDb = new GroupBox
             {
                 Text = " 持久化存储与日志 (Storage & Logs) ",
-                Location = new Point(15, 248),
-                Size = new Size(535, 95),
+                Location = new Point(16, 273),
+                Size = new Size(592, 95),
                 Font = new Font("Segoe UI", 9F, FontStyle.Bold)
             };
 
             _lblDbInfo = new Label
             {
-                Location = new Point(15, 25),
-                Size = new Size(505, 60),
+                Location = new Point(15, 24),
+                Size = new Size(560, 60),
                 Font = new Font("Segoe UI", 9F, FontStyle.Regular),
                 Text = "SQLite 数据库: 正在读取..."
             };
@@ -128,8 +128,8 @@ namespace OutlookJunkRescuer
             _btnScanNow = new Button
             {
                 Text = "立即执行对账扫描 (&S)",
-                Location = new Point(15, 360),
-                Size = new Size(160, 34),
+                Location = new Point(16, 380),
+                Size = new Size(180, 36),
                 BackColor = Color.FromArgb(0, 120, 215),
                 ForeColor = Color.White,
                 FlatStyle = FlatStyle.Flat,
@@ -143,8 +143,8 @@ namespace OutlookJunkRescuer
             _btnCleanDuplicates = new Button
             {
                 Text = "清理重复归档副本 (&D)...",
-                Location = new Point(185, 360),
-                Size = new Size(180, 34),
+                Location = new Point(206, 380),
+                Size = new Size(195, 36),
                 BackColor = Color.FromArgb(16, 124, 65),
                 ForeColor = Color.White,
                 FlatStyle = FlatStyle.Flat,
@@ -158,8 +158,8 @@ namespace OutlookJunkRescuer
             _btnOpenFolder = new Button
             {
                 Text = "打开数据与日志目录 (&O)",
-                Location = new Point(15, 405),
-                Size = new Size(175, 34),
+                Location = new Point(16, 426),
+                Size = new Size(195, 36),
                 BackColor = Color.FromArgb(225, 225, 225),
                 ForeColor = Color.Black,
                 FlatStyle = FlatStyle.Flat,
@@ -172,8 +172,8 @@ namespace OutlookJunkRescuer
             _btnClose = new Button
             {
                 Text = "关闭 (&C)",
-                Location = new Point(445, 405),
-                Size = new Size(105, 34),
+                Location = new Point(488, 426),
+                Size = new Size(120, 36),
                 BackColor = Color.FromArgb(225, 225, 225),
                 ForeColor = Color.Black,
                 FlatStyle = FlatStyle.Flat,
@@ -242,7 +242,9 @@ namespace OutlookJunkRescuer
                         ? $" (耗时 {stats.LastSweepDurationMs / 1000.0:F2} 秒)"
                         : string.Empty;
                     _lblLastSweep.Text = $"上次全量对账: {stats.LastSweepTime:yyyy-MM-dd HH:mm:ss}{durationStr}";
-                    _lblSweepStats.Text = $"本次扫描成果: 发现 {stats.LastVisibleCount} 封 | 归档 {stats.LastArchivedCount} 封 (恢复 {stats.LastRecoveredCount} 封) | 跳过 {stats.LastSkippedCount} 封 | 存疑 {stats.LastUncertainCount} 封 | 失败 {stats.LastFailedCount} 封";
+                    _lblSweepStats.Text =
+                        $"对账成果: 扫描 {stats.LastVisibleCount} 封 | 归档 {stats.LastArchivedCount} 封 (恢复 {stats.LastRecoveredCount} 封)\n" +
+                        $"处理明细: 跳过 {stats.LastSkippedCount} 封 | 存疑 {stats.LastUncertainCount} 封 | 失败 {stats.LastFailedCount} 封";
                 }
                 else
                 {

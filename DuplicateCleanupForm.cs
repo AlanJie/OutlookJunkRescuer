@@ -64,7 +64,7 @@ namespace OutlookJunkRescuer
         private void InitializeComponent()
         {
             this.Text = "Outlook Junk Rescuer — 跨设备重复归档副本清理";
-            this.Size = new Size(760, 565);
+            this.Size = new Size(828, 600);
             this.StartPosition = FormStartPosition.CenterScreen;
             this.FormBorderStyle = FormBorderStyle.FixedDialog;
             this.MaximizeBox = false;
@@ -77,7 +77,7 @@ namespace OutlookJunkRescuer
             {
                 Text = "跨设备归档副本检测与清理",
                 Location = new Point(16, 14),
-                Size = new Size(710, 24),
+                Size = new Size(780, 26),
                 Font = new Font("Segoe UI", 12F, FontStyle.Bold),
                 ForeColor = Color.FromArgb(32, 32, 32)
             };
@@ -86,8 +86,8 @@ namespace OutlookJunkRescuer
             _lblSubHeader = new Label
             {
                 Text = "多设备独立备份可能会产生良性重复副本。本工具遵循 Never-reduce-1->0 铁律，在确保归档中安全保留 1 份有效副本的前提下，将其余多余副本移至隔离目录或废件箱。",
-                Location = new Point(16, 40),
-                Size = new Size(710, 32),
+                Location = new Point(16, 44),
+                Size = new Size(780, 38),
                 Font = new Font("Segoe UI", 9F, FontStyle.Regular),
                 ForeColor = Color.FromArgb(100, 100, 100)
             };
@@ -97,8 +97,8 @@ namespace OutlookJunkRescuer
             _lblAccount = new Label
             {
                 Text = "选择账户:",
-                Location = new Point(16, 78),
-                Size = new Size(70, 22),
+                Location = new Point(16, 90),
+                Size = new Size(75, 24),
                 Font = new Font("Segoe UI", 9F, FontStyle.Bold),
                 TextAlign = ContentAlignment.MiddleLeft
             };
@@ -106,8 +106,8 @@ namespace OutlookJunkRescuer
 
             _cmbAccounts = new ComboBox
             {
-                Location = new Point(90, 77),
-                Size = new Size(320, 24),
+                Location = new Point(95, 87),
+                Size = new Size(360, 26),
                 DropDownStyle = ComboBoxStyle.DropDownList,
                 Font = new Font("Segoe UI", 9F, FontStyle.Regular)
             };
@@ -118,15 +118,15 @@ namespace OutlookJunkRescuer
             var grpResults = new GroupBox
             {
                 Text = " 重复归档邮件列表 ",
-                Location = new Point(16, 110),
-                Size = new Size(712, 226),
+                Location = new Point(16, 122),
+                Size = new Size(780, 220),
                 Font = new Font("Segoe UI", 9F, FontStyle.Bold)
             };
 
             _grid = new DataGridView
             {
                 Location = new Point(12, 22),
-                Size = new Size(688, 192),
+                Size = new Size(756, 186),
                 Font = new Font("Segoe UI", 9F, FontStyle.Regular),
                 ReadOnly = true,
                 AllowUserToAddRows = false,
@@ -159,16 +159,16 @@ namespace OutlookJunkRescuer
             var grpDestination = new GroupBox
             {
                 Text = " 多余副本清理去向 ",
-                Location = new Point(16, 344),
-                Size = new Size(712, 48),
+                Location = new Point(16, 350),
+                Size = new Size(780, 76),
                 Font = new Font("Segoe UI", 9F, FontStyle.Bold)
             };
 
             _rdoDestTrash = new RadioButton
             {
-                Text = "移至专用隔离目录 (Junk Archive\\Duplicate Trash) [推荐]",
-                Location = new Point(20, 18),
-                Size = new Size(360, 22),
+                Text = "移至专用隔离目录 (Junk Archive\\OutlookJunkRescuer Duplicate Trash) [推荐]",
+                Location = new Point(20, 20),
+                Size = new Size(740, 24),
                 Font = new Font("Segoe UI", 9F, FontStyle.Regular),
                 Checked = true
             };
@@ -177,8 +177,8 @@ namespace OutlookJunkRescuer
             _rdoDestDeleted = new RadioButton
             {
                 Text = "移至系统「已删除邮件」废件箱 (Deleted Items)",
-                Location = new Point(390, 18),
-                Size = new Size(300, 22),
+                Location = new Point(20, 46),
+                Size = new Size(740, 24),
                 Font = new Font("Segoe UI", 9F, FontStyle.Regular)
             };
             grpDestination.Controls.Add(_rdoDestDeleted);
@@ -187,8 +187,8 @@ namespace OutlookJunkRescuer
             // Status info
             _lblStatus = new Label
             {
-                Location = new Point(16, 400),
-                Size = new Size(710, 20),
+                Location = new Point(16, 434),
+                Size = new Size(780, 22),
                 Font = new Font("Segoe UI", 9F, FontStyle.Regular),
                 Text = "状态: 正在初始化..."
             };
@@ -196,8 +196,8 @@ namespace OutlookJunkRescuer
 
             _lblSummary = new Label
             {
-                Location = new Point(16, 422),
-                Size = new Size(710, 20),
+                Location = new Point(16, 458),
+                Size = new Size(780, 22),
                 Font = new Font("Segoe UI", 9F, FontStyle.Bold),
                 ForeColor = Color.FromArgb(0, 102, 204),
                 Text = "检测结果: 尚未开始扫描"
@@ -206,8 +206,8 @@ namespace OutlookJunkRescuer
 
             _progressBar = new ProgressBar
             {
-                Location = new Point(16, 446),
-                Size = new Size(712, 16),
+                Location = new Point(16, 482),
+                Size = new Size(780, 16),
                 Visible = false
             };
             this.Controls.Add(_progressBar);
@@ -216,8 +216,8 @@ namespace OutlookJunkRescuer
             _btnScan = new Button
             {
                 Text = "扫描重复项 (&S)",
-                Location = new Point(16, 472),
-                Size = new Size(125, 34),
+                Location = new Point(16, 508),
+                Size = new Size(130, 36),
                 BackColor = Color.FromArgb(0, 120, 215),
                 ForeColor = Color.White,
                 FlatStyle = FlatStyle.Flat,
@@ -231,8 +231,8 @@ namespace OutlookJunkRescuer
             _btnClean = new Button
             {
                 Text = "执行清理 (&C)",
-                Location = new Point(148, 472),
-                Size = new Size(125, 34),
+                Location = new Point(154, 508),
+                Size = new Size(130, 36),
                 BackColor = Color.FromArgb(216, 59, 1),
                 ForeColor = Color.White,
                 FlatStyle = FlatStyle.Flat,
@@ -247,8 +247,8 @@ namespace OutlookJunkRescuer
             _btnOpenTrash = new Button
             {
                 Text = "打开 Duplicate Trash (&T)",
-                Location = new Point(280, 472),
-                Size = new Size(165, 34),
+                Location = new Point(292, 508),
+                Size = new Size(185, 36),
                 BackColor = Color.FromArgb(225, 225, 225),
                 FlatStyle = FlatStyle.Flat,
                 Font = new Font("Segoe UI", 9F, FontStyle.Regular),
@@ -260,8 +260,8 @@ namespace OutlookJunkRescuer
             _btnEmptyTrash = new Button
             {
                 Text = "清空 Trash (&E)",
-                Location = new Point(452, 472),
-                Size = new Size(120, 34),
+                Location = new Point(485, 508),
+                Size = new Size(135, 36),
                 BackColor = Color.FromArgb(225, 225, 225),
                 FlatStyle = FlatStyle.Flat,
                 Font = new Font("Segoe UI", 9F, FontStyle.Regular),
@@ -273,8 +273,8 @@ namespace OutlookJunkRescuer
             _btnClose = new Button
             {
                 Text = "关闭 (&X)",
-                Location = new Point(628, 472),
-                Size = new Size(100, 34),
+                Location = new Point(676, 508),
+                Size = new Size(120, 36),
                 BackColor = Color.FromArgb(225, 225, 225),
                 FlatStyle = FlatStyle.Flat,
                 Font = new Font("Segoe UI", 9F, FontStyle.Regular),
@@ -468,7 +468,7 @@ namespace OutlookJunkRescuer
 
             string destDesc = moveToDeleted
                 ? "系统「已删除邮件」废件箱 (Deleted Items)"
-                : "「Junk Archive\\Duplicate Trash」软隔离目录";
+                : "「Junk Archive\\OutlookJunkRescuer Duplicate Trash」软隔离目录";
 
             int totalRedundant = _duplicateGroups.Sum(g => g.RedundantCopies);
             var confirm = MessageBox.Show(
