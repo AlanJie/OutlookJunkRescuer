@@ -207,7 +207,7 @@ namespace OutlookJunkRescuer
                 // Ensure startup and reconciliation sweeps are driven by durable journal state:
                 // Reconcile union of currently visible Junk SearchKeys and any non-terminal states
                 // (Pending, CopyCreated, Moving, Uncertain) recorded in SQLite for this store.
-                List<MessageState> nonTerminalStates = _state.GetNonTerminalStates(smtp, storeId);
+                List<MessageState> nonTerminalStates = _state.GetNonTerminalStates(storeId);
 
                 var allSearchKeys = new HashSet<string>(StringComparer.Ordinal);
                 foreach (var k in itemsBySearchKey.Keys)
@@ -237,6 +237,7 @@ namespace OutlookJunkRescuer
                             ref uncertain,
                             ref skipped,
                             smtp,
+                            storeId,
                             searchKey);
                     }
                     catch (Exception ex)
@@ -286,6 +287,7 @@ namespace OutlookJunkRescuer
                     ref uncertain,
                     ref skipped,
                     accountSmtp,
+                    storeId,
                     descriptor.SearchKeyHex);
 
                 if (archived > 0)
@@ -316,17 +318,18 @@ namespace OutlookJunkRescuer
             ref int uncertain,
             ref int skipped,
             string accountSmtp,
+            string storeId,
             string searchKeyHex)
         {
-            if (string.IsNullOrEmpty(accountSmtp) || string.IsNullOrEmpty(searchKeyHex))
+            if (string.IsNullOrEmpty(storeId) || string.IsNullOrEmpty(searchKeyHex))
                 return;
 
-            string activeKey = accountSmtp + ":" + searchKeyHex;
+            string activeKey = storeId + ":" + searchKeyHex;
             lock (_activeOperations)
             {
                 if (!_activeOperations.Add(activeKey))
                 {
-                    Logger.Write($"[{accountSmtp}] Operation already in progress for {searchKeyHex}; skipped re-entrant call.");
+                    Logger.Write($"[{accountSmtp}] Operation already in progress for store {storeId}, SearchKey {searchKeyHex}; skipped re-entrant call.");
                     skipped++;
                     return;
                 }
@@ -334,7 +337,7 @@ namespace OutlookJunkRescuer
 
             try
             {
-                MessageState state = _state.Get(accountSmtp, searchKeyHex);
+                MessageState state = _state.Get(storeId, searchKeyHex);
 
                 if (state == null)
                 {
@@ -429,7 +432,7 @@ namespace OutlookJunkRescuer
 
                         // Reappeared in Junk: revive from SourceGone back to Pending and process
                         Logger.Write($"[{accountSmtp}] SearchKey {searchKeyHex} previously marked SourceGone has reappeared in Junk; reviving to Pending.");
-                        SourceMessageDescriptor reviveSource = ChooseReadOnlySource(candidates, state);
+                        SourceMessageDescriptor reviveSource = ChooseRevivedSource(candidates, state);
                         state = _state.ReviveSourceGone(reviveSource);
 
                         ProcessPending(
@@ -481,7 +484,7 @@ namespace OutlookJunkRescuer
                         _ownedCopies.Describe(ownedCopy);
 
                     _state.MarkCopyCreated(
-                        state.AccountSmtp,
+                        state.StoreId,
                         state.SearchKeyHex,
                         descriptor);
 
@@ -497,7 +500,7 @@ namespace OutlookJunkRescuer
                 ownedCopy = _source.CreateCopy(source);
                 if (ownedCopy == null)
                 {
-                    _state.MarkSourceGone(source.AccountSmtp, source.SearchKeyHex);
+                    _state.MarkSourceGone(source.StoreId, source.SearchKeyHex);
                     Logger.Write($"[{source.AccountSmtp}] Source item is no longer in Junk; marked SourceGone for SearchKey {source.SearchKeyHex}.");
                     return;
                 }
@@ -516,7 +519,7 @@ namespace OutlookJunkRescuer
                 // This durable transition means Copy exists and Move has not yet
                 // been invoked. Missing evidence after this point is fail-closed.
                 _state.MarkCopyCreated(
-                    source.AccountSmtp,
+                    source.StoreId,
                     source.SearchKeyHex,
                     working);
 
@@ -531,6 +534,43 @@ namespace OutlookJunkRescuer
             {
                 ComUtil.Release(ownedCopy);
             }
+        }
+
+        private void RecoverExistingPendingCopy(
+            MessageState state,
+            Outlook.MailItem ownedCopy,
+            Outlook.MAPIFolder archive,
+            ref int recovered)
+        {
+            if (_ownedCopies.IsInFolder(ownedCopy, archive))
+            {
+                ArchiveMatch committed =
+                    _archiveWriter.DescribeOwnedCopy(ownedCopy);
+
+                ValidateCommittedMatch(state, committed);
+                _state.MarkArchived(
+                    state.StoreId,
+                    state.SearchKeyHex,
+                    committed);
+
+                recovered++;
+                return;
+            }
+
+            WorkingCopyDescriptor descriptor =
+                _ownedCopies.Describe(ownedCopy);
+
+            _state.RefreshWorkingCopyLocator(
+                state.StoreId,
+                state.SearchKeyHex,
+                descriptor);
+
+            MoveExistingOwnedCopy(
+                state,
+                ownedCopy,
+                archive);
+
+            recovered++;
         }
 
         private bool RecoverOwnedCopyOrWait(
@@ -563,7 +603,7 @@ namespace OutlookJunkRescuer
 
                         ValidateCommittedMatch(state, committed);
                         _state.MarkArchived(
-                            state.AccountSmtp,
+                            state.StoreId,
                             state.SearchKeyHex,
                             committed);
 
@@ -580,7 +620,7 @@ namespace OutlookJunkRescuer
                     // Refresh only the locator. Do not downgrade Moving/Uncertain
                     // back to CopyCreated during recovery.
                     _state.RefreshWorkingCopyLocator(
-                        state.AccountSmtp,
+                        state.StoreId,
                         state.SearchKeyHex,
                         descriptor);
 
@@ -606,7 +646,7 @@ namespace OutlookJunkRescuer
 
                 ValidateCommittedMatch(state, archiveMatch);
                 _state.MarkArchived(
-                    state.AccountSmtp,
+                    state.StoreId,
                     state.SearchKeyHex,
                     archiveMatch);
 
@@ -643,7 +683,7 @@ namespace OutlookJunkRescuer
             {
                 ValidateCommittedMatch(state, archiveMatch);
                 _state.MarkArchived(
-                    state.AccountSmtp,
+                    state.StoreId,
                     state.SearchKeyHex,
                     archiveMatch);
 
@@ -669,7 +709,7 @@ namespace OutlookJunkRescuer
             // Write-ahead barrier: once Moving is durable, recovery must never
             // create another copy based on a negative/empty archive query.
             _state.MarkMoving(
-                state.AccountSmtp,
+                state.StoreId,
                 state.SearchKeyHex);
 
             ArchiveMatch moved =
@@ -680,7 +720,7 @@ namespace OutlookJunkRescuer
             ValidateCommittedMatch(state, moved);
 
             _state.MarkArchived(
-                state.AccountSmtp,
+                state.StoreId,
                 state.SearchKeyHex,
                 moved);
         }
@@ -749,6 +789,52 @@ namespace OutlookJunkRescuer
             throw new InvalidOperationException(
                 "The journaled source object is not currently visible in Junk; " +
                 "refusing to substitute another same-SearchKey object.");
+        }
+
+        private SourceMessageDescriptor ChooseRevivedSource(
+            List<SourceMessageDescriptor> candidates,
+            MessageState state)
+        {
+            if (candidates == null || candidates.Count == 0)
+                throw new ArgumentException("No candidates available for revival.", nameof(candidates));
+
+            if (state == null)
+                return candidates[0];
+
+            SourceMessageDescriptor exactRecord = candidates.FirstOrDefault(
+                x => string.Equals(
+                    x.RecordKeyHex,
+                    state.SourceRecordKeyHex,
+                    StringComparison.Ordinal));
+
+            if (exactRecord != null)
+                return exactRecord;
+
+            if (!string.IsNullOrEmpty(state.SourceEntryId))
+            {
+                foreach (SourceMessageDescriptor candidate in candidates)
+                {
+                    if (string.IsNullOrEmpty(candidate.EntryId))
+                        continue;
+
+                    // EntryID is opaque. Never infer inequality from string
+                    // inequality; ask the provider whether the IDs are equivalent.
+                    if (_session.CompareEntryIDs(
+                        candidate.EntryId,
+                        state.SourceEntryId))
+                    {
+                        return candidate;
+                    }
+                }
+            }
+
+            // If the message was moved out of Junk and then moved back, MAPI store
+            // providers often assign a new EntryID and RecordKey. Since candidates are
+            // already confirmed to be in Junk with matching SearchKey, accept the first candidate.
+            Logger.Write(
+                $"[{state.AccountSmtp}] SearchKey {state.SearchKeyHex}: " +
+                "Source identity changed after revival; using available same-SearchKey Junk candidate.");
+            return candidates[0];
         }
 
         private static void LogUncertain(MessageState state, string reason)

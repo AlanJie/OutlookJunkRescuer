@@ -450,11 +450,15 @@ namespace OutlookJunkRescuer
         }
 
         /// <summary>
-        /// 安全清空 Duplicate Trash 目录中的冗余副本（将其移入系统「已删除邮件」）。
-        /// 核心安全原则：逐项执行 OJR 所有权正向验证，任何未打上完整 OJR 标记的项目绝不触碰并予以保留。
+        /// 安全清空 Duplicate Trash 目录中的冗余副本（将其显式移入系统「已删除邮件」）。
+        /// 核心安全原则：
+        /// 1. 逐项执行 OJR 所有权正向验证，任何未打上完整 OJR 标记的项目绝不触碰并予以保留。
+        /// 2. 仅当邮件当前确实位于 trashFolder 中时才执行移动；若已被移走则直接跳过，绝不调用 Delete() 避免误触发物理彻底删除。
+        /// 3. 显式调用 mail.Move(deletedItemsFolder)，确保即便发生并发移动，也绝不会升级为 hard-delete。
         /// </summary>
         public void EmptyTrash(
             Outlook.MAPIFolder trashFolder,
+            string storeId,
             out int deletedCount,
             out int skippedUnknownCount)
         {
@@ -464,51 +468,112 @@ namespace OutlookJunkRescuer
             if (trashFolder == null)
                 return;
 
-            Outlook.Items items = null;
+            Outlook.Store store = null;
+            Outlook.MAPIFolder deletedItemsFolder = null;
             try
             {
-                items = trashFolder.Items;
-                int count = items.Count;
-                for (int i = count; i >= 1; i--)
+                if (!string.IsNullOrEmpty(storeId))
                 {
-                    object itemObj = null;
                     try
                     {
-                        itemObj = items[i];
-                        var mail = itemObj as Outlook.MailItem;
-                        if (mail == null)
-                        {
-                            skippedUnknownCount++;
-                            continue;
-                        }
-
-                        // 统一正向验证 OJR 完整所有权标记
-                        if (!ValidateOjrMarkers(mail))
-                        {
-                            Logger.Write($"[DuplicateCleaner] 隔离目录中发现非 OJR 项目或标记不完整 (Subject={mail.Subject})，保留不予清理。");
-                            skippedUnknownCount++;
-                            continue;
-                        }
-
-                        // Delete() moves mail from regular folder to Deleted Items
-                        mail.Delete();
-                        deletedCount++;
+                        store = _session.GetStoreFromID(storeId);
                     }
                     catch (Exception ex)
                     {
-                        Logger.Write($"[DuplicateCleaner] 清理隔离副本失败: {ex}");
-                        skippedUnknownCount++;
+                        Logger.Write($"[DuplicateCleaner] GetStoreFromID 失败: {ex.Message}");
                     }
-                    finally
+                }
+
+                if (store == null)
+                {
+                    try
                     {
-                        // mail 仅为 itemObj 的类型转换句柄，只释放一次以避免 COM RCW double-release
-                        ComUtil.Release(itemObj);
+                        store = trashFolder.Store;
                     }
+                    catch (Exception ex)
+                    {
+                        Logger.Write($"[DuplicateCleaner] 获取 trashFolder.Store 失败: {ex.Message}");
+                    }
+                }
+
+                if (store != null)
+                {
+                    deletedItemsFolder = store.GetDefaultFolder(Outlook.OlDefaultFolders.olFolderDeletedItems);
+                }
+
+                if (deletedItemsFolder == null)
+                {
+                    Logger.Write("[DuplicateCleaner] 无法定位当前 Store 的「已删除邮件」文件夹，中止清空操作。");
+                    return;
+                }
+
+                Outlook.Items items = null;
+                try
+                {
+                    items = trashFolder.Items;
+                    int count = items.Count;
+                    for (int i = count; i >= 1; i--)
+                    {
+                        object itemObj = null;
+                        try
+                        {
+                            itemObj = items[i];
+                            var mail = itemObj as Outlook.MailItem;
+                            if (mail == null)
+                            {
+                                skippedUnknownCount++;
+                                continue;
+                            }
+
+                            // 统一正向验证 OJR 完整所有权标记
+                            if (!ValidateOjrMarkers(mail))
+                            {
+                                Logger.Write($"[DuplicateCleaner] 隔离目录中发现非 OJR 项目或标记不完整 (Subject={mail.Subject})，保留不予清理。");
+                                skippedUnknownCount++;
+                                continue;
+                            }
+
+                            // 验证邮件当前仍处于 trashFolder 中；若已被移走则跳过，防止并发移动时出现竞态
+                            if (!_ownedCopies.IsInFolder(mail, trashFolder))
+                            {
+                                Logger.Write($"[DuplicateCleaner] 邮件已不在隔离目录中 (Subject={mail.Subject})，跳过移动。");
+                                skippedUnknownCount++;
+                                continue;
+                            }
+
+                            // 显式 Move 到「已删除邮件」，绝不调用 mail.Delete()，消除物理删除风险
+                            object movedObj = null;
+                            try
+                            {
+                                movedObj = mail.Move(deletedItemsFolder);
+                                deletedCount++;
+                            }
+                            finally
+                            {
+                                ComUtil.Release(movedObj);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.Write($"[DuplicateCleaner] 移动隔离副本至「已删除邮件」失败: {ex}");
+                            skippedUnknownCount++;
+                        }
+                        finally
+                        {
+                            // mail 仅为 itemObj 的类型转换句柄，只释放一次以避免 COM RCW double-release
+                            ComUtil.Release(itemObj);
+                        }
+                    }
+                }
+                finally
+                {
+                    ComUtil.Release(items);
                 }
             }
             finally
             {
-                ComUtil.Release(items);
+                ComUtil.Release(deletedItemsFolder);
+                ComUtil.Release(store);
             }
         }
 

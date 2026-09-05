@@ -631,7 +631,7 @@ namespace OutlookJunkRescuer
 
                 int deleted = 0;
                 int skippedUnknown = 0;
-                _cleaner.EmptyTrash(trash, out deleted, out skippedUnknown);
+                _cleaner.EmptyTrash(trash, _storeId, out deleted, out skippedUnknown);
 
                 string msg = $"已成功将 {deleted} 封冗余副本移至「已删除邮件」。";
                 if (skippedUnknown > 0)

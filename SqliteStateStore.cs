@@ -7,7 +7,7 @@ namespace OutlookJunkRescuer
 {
     internal sealed class SqliteStateStore : IDisposable
     {
-        private const int CurrentSchemaVersion = 4;
+        private const int CurrentSchemaVersion = 5;
 
         private readonly SQLiteConnection _connection;
         private readonly object _gate = new object();
@@ -45,6 +45,50 @@ namespace OutlookJunkRescuer
             lock (_gate)
             {
                 ExecuteNonQueryUnlocked(@"
+CREATE TABLE IF NOT EXISTS app_settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+");
+
+                int version = GetUserVersionUnlocked();
+
+                if (version == 0)
+                {
+                    bool tableExisted = TableExistsUnlocked("message_state");
+                    if (tableExisted)
+                    {
+                        // v3 had only Pending(0)/Archived(1), and Pending did not have
+                        // a durable pre-Move barrier. Such rows may already have crossed
+                        // Move(), so replaying Copy would be unsafe. Convert only legacy
+                        // Pending rows to Uncertain. Archived=1 remains valid.
+                        ExecuteNonQueryUnlocked(
+                            "UPDATE message_state SET state = 4 WHERE state = 0;");
+                        MigrateToV5Unlocked();
+                    }
+                    else
+                    {
+                        CreateV5SchemaUnlocked();
+                    }
+
+                    SetUserVersionUnlocked(CurrentSchemaVersion);
+                }
+                else if (version < CurrentSchemaVersion)
+                {
+                    MigrateToV5Unlocked();
+                    SetUserVersionUnlocked(CurrentSchemaVersion);
+                }
+                else if (version > CurrentSchemaVersion)
+                {
+                    throw new InvalidOperationException(
+                        "State database was created by a newer add-in version: " + version);
+                }
+            }
+        }
+
+        private void CreateV5SchemaUnlocked()
+        {
+            ExecuteNonQueryUnlocked(@"
 CREATE TABLE IF NOT EXISTS message_state (
     store_id                    TEXT NOT NULL,
     search_key_hex              TEXT NOT NULL,
@@ -59,58 +103,82 @@ CREATE TABLE IF NOT EXISTS message_state (
     archive_record_key_hex      TEXT NULL,
     created_utc                 TEXT NOT NULL,
     updated_utc                 TEXT NOT NULL,
-    PRIMARY KEY (account_smtp, search_key_hex),
+    PRIMARY KEY (store_id, search_key_hex),
     UNIQUE (operation_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_message_state_state
     ON message_state(state);
 
+CREATE INDEX IF NOT EXISTS idx_message_state_store_state
+    ON message_state(store_id, state);
+
 CREATE INDEX IF NOT EXISTS idx_message_state_account_state
     ON message_state(account_smtp, state);
-
-CREATE INDEX IF NOT EXISTS idx_message_state_account_store_state
-    ON message_state(account_smtp, store_id, state);
-
-CREATE TABLE IF NOT EXISTS app_settings (
-    key   TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-);
 ");
+        }
 
-                if (!ColumnExistsUnlocked("message_state", "archive_record_key_hex"))
-                {
-                    ExecuteNonQueryUnlocked(
-                        "ALTER TABLE message_state ADD COLUMN archive_record_key_hex TEXT NULL;");
-                }
+        private void MigrateToV5Unlocked()
+        {
+            if (!ColumnExistsUnlocked("message_state", "archive_record_key_hex"))
+            {
+                ExecuteNonQueryUnlocked(
+                    "ALTER TABLE message_state ADD COLUMN archive_record_key_hex TEXT NULL;");
+            }
 
-                int version = GetUserVersionUnlocked();
+            ExecuteNonQueryUnlocked(@"
+CREATE TABLE IF NOT EXISTS message_state_v5 (
+    store_id                    TEXT NOT NULL,
+    search_key_hex              TEXT NOT NULL,
+    account_smtp                TEXT NOT NULL,
+    source_entry_id             TEXT NOT NULL,
+    source_record_key_hex       TEXT NOT NULL,
+    operation_id                TEXT NOT NULL,
+    state                       INTEGER NOT NULL,
+    working_copy_entry_id       TEXT NULL,
+    working_copy_record_key_hex TEXT NULL,
+    archive_entry_id            TEXT NULL,
+    archive_record_key_hex      TEXT NULL,
+    created_utc                 TEXT NOT NULL,
+    updated_utc                 TEXT NOT NULL,
+    PRIMARY KEY (store_id, search_key_hex),
+    UNIQUE (operation_id)
+);
 
-                if (version == 0)
-                {
-                    // v3 had only Pending(0)/Archived(1), and Pending did not have
-                    // a durable pre-Move barrier. Such rows may already have crossed
-                    // Move(), so replaying Copy would be unsafe. Convert only legacy
-                    // Pending rows to Uncertain. Archived=1 remains valid.
-                    ExecuteNonQueryUnlocked(
-                        "UPDATE message_state SET state = 4 WHERE state = 0;");
+INSERT OR REPLACE INTO message_state_v5
+SELECT store_id, search_key_hex, account_smtp,
+       source_entry_id, source_record_key_hex,
+       operation_id, state,
+       working_copy_entry_id, working_copy_record_key_hex,
+       archive_entry_id, archive_record_key_hex,
+       created_utc, updated_utc
+FROM message_state;
 
-                    SetUserVersionUnlocked(CurrentSchemaVersion);
-                }
-                else if (version < CurrentSchemaVersion)
-                {
-                    throw new InvalidOperationException(
-                        "Unsupported intermediate state database schema version: " + version);
-                }
-                else if (version > CurrentSchemaVersion)
-                {
-                    throw new InvalidOperationException(
-                        "State database was created by a newer add-in version: " + version);
-                }
+DROP TABLE message_state;
+ALTER TABLE message_state_v5 RENAME TO message_state;
+
+CREATE INDEX IF NOT EXISTS idx_message_state_state
+    ON message_state(state);
+
+CREATE INDEX IF NOT EXISTS idx_message_state_store_state
+    ON message_state(store_id, state);
+
+CREATE INDEX IF NOT EXISTS idx_message_state_account_state
+    ON message_state(account_smtp, state);
+");
+        }
+
+        private bool TableExistsUnlocked(string table)
+        {
+            using (var cmd = _connection.CreateCommand())
+            {
+                cmd.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=@name;";
+                cmd.Parameters.AddWithValue("@name", table);
+                return Convert.ToInt32(cmd.ExecuteScalar()) > 0;
             }
         }
 
-        public MessageState Get(string accountSmtp, string searchKeyHex)
+        public MessageState Get(string storeId, string searchKeyHex)
         {
             lock (_gate)
             {
@@ -119,8 +187,8 @@ CREATE TABLE IF NOT EXISTS app_settings (
                 using (var cmd = _connection.CreateCommand())
                 {
                     cmd.CommandText = SelectSql + @"
-WHERE account_smtp = @account_smtp AND search_key_hex = @search_key_hex;";
-                    cmd.Parameters.AddWithValue("@account_smtp", accountSmtp);
+WHERE store_id = @store_id AND search_key_hex = @search_key_hex;";
+                    cmd.Parameters.AddWithValue("@store_id", storeId);
                     cmd.Parameters.AddWithValue("@search_key_hex", searchKeyHex);
 
                     using (var reader = cmd.ExecuteReader())
@@ -131,7 +199,7 @@ WHERE account_smtp = @account_smtp AND search_key_hex = @search_key_hex;";
             }
         }
 
-        public List<MessageState> GetNonTerminalStates(string accountSmtp, string storeId)
+        public List<MessageState> GetNonTerminalStates(string storeId)
         {
             lock (_gate)
             {
@@ -141,10 +209,8 @@ WHERE account_smtp = @account_smtp AND search_key_hex = @search_key_hex;";
                 using (var cmd = _connection.CreateCommand())
                 {
                     cmd.CommandText = SelectSql + @"
-WHERE account_smtp = @account_smtp 
-  AND store_id = @store_id
+WHERE store_id = @store_id
   AND state IN (@pending, @copy_created, @moving, @uncertain);";
-                    cmd.Parameters.AddWithValue("@account_smtp", accountSmtp);
                     cmd.Parameters.AddWithValue("@store_id", storeId);
                     cmd.Parameters.AddWithValue("@pending", (int)ArchiveState.Pending);
                     cmd.Parameters.AddWithValue("@copy_created", (int)ArchiveState.CopyCreated);
@@ -174,7 +240,7 @@ WHERE account_smtp = @account_smtp
                 {
                     MessageState existing = GetWithinTransaction(
                         tx,
-                        source.AccountSmtp,
+                        source.StoreId,
                         source.SearchKeyHex);
 
                     if (existing != null)
@@ -241,7 +307,7 @@ INSERT INTO message_state (
         }
 
         public void MarkCopyCreated(
-            string accountSmtp,
+            string storeId,
             string searchKeyHex,
             WorkingCopyDescriptor copy)
         {
@@ -259,7 +325,7 @@ SET state = @state,
     working_copy_entry_id = @entry_id,
     working_copy_record_key_hex = @record_key,
     updated_utc = @updated_utc
-WHERE account_smtp = @account_smtp 
+WHERE store_id = @store_id 
   AND search_key_hex = @search_key_hex
   AND state IN (@pending, @copy_created);";
 
@@ -267,7 +333,7 @@ WHERE account_smtp = @account_smtp
                     cmd.Parameters.AddWithValue("@entry_id", copy.EntryId);
                     cmd.Parameters.AddWithValue("@record_key", copy.RecordKeyHex);
                     cmd.Parameters.AddWithValue("@updated_utc", DateTime.UtcNow.ToString("o"));
-                    cmd.Parameters.AddWithValue("@account_smtp", accountSmtp);
+                    cmd.Parameters.AddWithValue("@store_id", storeId);
                     cmd.Parameters.AddWithValue("@search_key_hex", searchKeyHex);
                     cmd.Parameters.AddWithValue("@pending", (int)ArchiveState.Pending);
                     cmd.Parameters.AddWithValue("@copy_created", (int)ArchiveState.CopyCreated);
@@ -275,7 +341,7 @@ WHERE account_smtp = @account_smtp
                     int rows = cmd.ExecuteNonQuery();
                     if (rows == 0)
                     {
-                        var current = Get(accountSmtp, searchKeyHex);
+                        var current = Get(storeId, searchKeyHex);
                         if (current == null)
                             throw new InvalidOperationException($"MarkCopyCreated failed: row not found for {searchKeyHex}");
 
@@ -291,7 +357,7 @@ WHERE account_smtp = @account_smtp
             }
         }
 
-        public void MarkSourceGone(string accountSmtp, string searchKeyHex)
+        public void MarkSourceGone(string storeId, string searchKeyHex)
         {
             lock (_gate)
             {
@@ -303,13 +369,13 @@ WHERE account_smtp = @account_smtp
 UPDATE message_state
 SET state = @state,
     updated_utc = @updated_utc
-WHERE account_smtp = @account_smtp 
+WHERE store_id = @store_id 
   AND search_key_hex = @search_key_hex
   AND state = @pending;";
 
                     cmd.Parameters.AddWithValue("@state", (int)ArchiveState.SourceGone);
                     cmd.Parameters.AddWithValue("@updated_utc", DateTime.UtcNow.ToString("o"));
-                    cmd.Parameters.AddWithValue("@account_smtp", accountSmtp);
+                    cmd.Parameters.AddWithValue("@store_id", storeId);
                     cmd.Parameters.AddWithValue("@search_key_hex", searchKeyHex);
                     cmd.Parameters.AddWithValue("@pending", (int)ArchiveState.Pending);
 
@@ -333,35 +399,35 @@ WHERE account_smtp = @account_smtp
 UPDATE message_state
 SET state = @state,
     operation_id = @operation_id,
-    store_id = @store_id,
+    account_smtp = @account_smtp,
     source_entry_id = @source_entry_id,
     source_record_key_hex = @source_record_key_hex,
     working_copy_entry_id = NULL,
     working_copy_record_key_hex = NULL,
     updated_utc = @updated_utc
-WHERE account_smtp = @account_smtp 
+WHERE store_id = @store_id 
   AND search_key_hex = @search_key_hex
   AND state = @source_gone;";
 
                     cmd.Parameters.AddWithValue("@state", (int)ArchiveState.Pending);
                     cmd.Parameters.AddWithValue("@operation_id", Guid.NewGuid().ToString("D"));
-                    cmd.Parameters.AddWithValue("@store_id", source.StoreId);
+                    cmd.Parameters.AddWithValue("@account_smtp", source.AccountSmtp);
                     cmd.Parameters.AddWithValue("@source_entry_id", source.EntryId);
                     cmd.Parameters.AddWithValue("@source_record_key_hex", source.RecordKeyHex);
                     cmd.Parameters.AddWithValue("@updated_utc", DateTime.UtcNow.ToString("o"));
-                    cmd.Parameters.AddWithValue("@account_smtp", source.AccountSmtp);
+                    cmd.Parameters.AddWithValue("@store_id", source.StoreId);
                     cmd.Parameters.AddWithValue("@search_key_hex", source.SearchKeyHex);
                     cmd.Parameters.AddWithValue("@source_gone", (int)ArchiveState.SourceGone);
 
                     cmd.ExecuteNonQuery();
                 }
 
-                return Get(source.AccountSmtp, source.SearchKeyHex);
+                return Get(source.StoreId, source.SearchKeyHex);
             }
         }
 
         public void RefreshWorkingCopyLocator(
-            string accountSmtp,
+            string storeId,
             string searchKeyHex,
             WorkingCopyDescriptor copy)
         {
@@ -376,14 +442,14 @@ UPDATE message_state
 SET working_copy_entry_id = @entry_id,
     working_copy_record_key_hex = @record_key,
     updated_utc = @updated_utc
-WHERE account_smtp = @account_smtp 
+WHERE store_id = @store_id 
   AND search_key_hex = @search_key_hex
   AND state IN (@copy_created, @moving, @uncertain);";
 
                     cmd.Parameters.AddWithValue("@entry_id", copy.EntryId);
                     cmd.Parameters.AddWithValue("@record_key", copy.RecordKeyHex);
                     cmd.Parameters.AddWithValue("@updated_utc", DateTime.UtcNow.ToString("o"));
-                    cmd.Parameters.AddWithValue("@account_smtp", accountSmtp);
+                    cmd.Parameters.AddWithValue("@store_id", storeId);
                     cmd.Parameters.AddWithValue("@search_key_hex", searchKeyHex);
                     cmd.Parameters.AddWithValue("@copy_created", (int)ArchiveState.CopyCreated);
                     cmd.Parameters.AddWithValue("@moving", (int)ArchiveState.Moving);
@@ -393,7 +459,7 @@ WHERE account_smtp = @account_smtp
             }
         }
 
-        public void MarkMoving(string accountSmtp, string searchKeyHex)
+        public void MarkMoving(string storeId, string searchKeyHex)
         {
             lock (_gate)
             {
@@ -407,13 +473,13 @@ WHERE account_smtp = @account_smtp
 UPDATE message_state
 SET state = @state,
     updated_utc = @updated_utc
-WHERE account_smtp = @account_smtp 
+WHERE store_id = @store_id 
   AND search_key_hex = @search_key_hex
   AND state IN (@copy_created, @moving, @uncertain);";
 
                     cmd.Parameters.AddWithValue("@state", (int)ArchiveState.Moving);
                     cmd.Parameters.AddWithValue("@updated_utc", DateTime.UtcNow.ToString("o"));
-                    cmd.Parameters.AddWithValue("@account_smtp", accountSmtp);
+                    cmd.Parameters.AddWithValue("@store_id", storeId);
                     cmd.Parameters.AddWithValue("@search_key_hex", searchKeyHex);
                     cmd.Parameters.AddWithValue("@copy_created", (int)ArchiveState.CopyCreated);
                     cmd.Parameters.AddWithValue("@moving", (int)ArchiveState.Moving);
@@ -422,7 +488,7 @@ WHERE account_smtp = @account_smtp
                     int rows = cmd.ExecuteNonQuery();
                     if (rows == 0)
                     {
-                        var current = Get(accountSmtp, searchKeyHex);
+                        var current = Get(storeId, searchKeyHex);
                         if (current == null)
                             throw new InvalidOperationException($"MarkMoving failed: row not found for {searchKeyHex}");
 
@@ -439,7 +505,7 @@ WHERE account_smtp = @account_smtp
         }
 
         public void MarkArchived(
-            string accountSmtp,
+            string storeId,
             string searchKeyHex,
             ArchiveMatch archive)
         {
@@ -460,13 +526,13 @@ SET state = @state,
     working_copy_entry_id = NULL,
     working_copy_record_key_hex = NULL,
     updated_utc = @updated_utc
-WHERE account_smtp = @account_smtp AND search_key_hex = @search_key_hex;";
+WHERE store_id = @store_id AND search_key_hex = @search_key_hex;";
 
                     cmd.Parameters.AddWithValue("@state", (int)ArchiveState.Archived);
                     cmd.Parameters.AddWithValue("@archive_entry_id", archive.EntryId);
                     cmd.Parameters.AddWithValue("@archive_record_key_hex", (object)archive.RecordKeyHex ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@updated_utc", DateTime.UtcNow.ToString("o"));
-                    cmd.Parameters.AddWithValue("@account_smtp", accountSmtp);
+                    cmd.Parameters.AddWithValue("@store_id", storeId);
                     cmd.Parameters.AddWithValue("@search_key_hex", searchKeyHex);
                     RequireSingleRow(cmd.ExecuteNonQuery(), "MarkArchived");
                 }
@@ -475,15 +541,15 @@ WHERE account_smtp = @account_smtp AND search_key_hex = @search_key_hex;";
 
         private MessageState GetWithinTransaction(
             SQLiteTransaction tx,
-            string accountSmtp,
+            string storeId,
             string searchKeyHex)
         {
             using (var cmd = _connection.CreateCommand())
             {
                 cmd.Transaction = tx;
                 cmd.CommandText = SelectSql + @"
-WHERE account_smtp = @account_smtp AND search_key_hex = @search_key_hex;";
-                cmd.Parameters.AddWithValue("@account_smtp", accountSmtp);
+WHERE store_id = @store_id AND search_key_hex = @search_key_hex;";
+                cmd.Parameters.AddWithValue("@store_id", storeId);
                 cmd.Parameters.AddWithValue("@search_key_hex", searchKeyHex);
 
                 using (var reader = cmd.ExecuteReader())
@@ -502,17 +568,17 @@ WHERE account_smtp = @account_smtp AND search_key_hex = @search_key_hex;";
                 cmd.Transaction = tx;
                 cmd.CommandText = @"
 UPDATE message_state
-SET store_id = @store_id,
+SET account_smtp = @account_smtp,
     source_entry_id = @source_entry_id,
     source_record_key_hex = @source_record_key_hex,
     updated_utc = @updated_utc
-WHERE account_smtp = @account_smtp AND search_key_hex = @search_key_hex;";
+WHERE store_id = @store_id AND search_key_hex = @search_key_hex;";
 
                 cmd.Parameters.AddWithValue("@account_smtp", source.AccountSmtp);
-                cmd.Parameters.AddWithValue("@store_id", source.StoreId);
                 cmd.Parameters.AddWithValue("@source_entry_id", source.EntryId);
                 cmd.Parameters.AddWithValue("@source_record_key_hex", source.RecordKeyHex);
                 cmd.Parameters.AddWithValue("@updated_utc", DateTime.UtcNow.ToString("o"));
+                cmd.Parameters.AddWithValue("@store_id", source.StoreId);
                 cmd.Parameters.AddWithValue("@search_key_hex", source.SearchKeyHex);
                 RequireSingleRow(cmd.ExecuteNonQuery(), "UpdateSourceLocator");
             }
