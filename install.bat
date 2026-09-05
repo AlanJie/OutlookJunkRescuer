@@ -4,6 +4,7 @@ echo 正在安装 OutlookJunkRescuer 插件...
 
 cd /d "%~dp0"
 set ADDIN_PATH=%~dp0OutlookJunkRescuer.vsto
+set ADDIN_PATH=%ADDIN_PATH:\=/%
 
 reg add "HKCU\Software\Microsoft\Office\Outlook\Addins\OutlookJunkRescuer" /v "FriendlyName" /d "OutlookJunkRescuer" /f >nul
 reg add "HKCU\Software\Microsoft\Office\Outlook\Addins\OutlookJunkRescuer" /v "Description" /d "OutlookJunkRescuer" /f >nul

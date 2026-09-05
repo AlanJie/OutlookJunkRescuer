@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Data.SQLite;
 using System.IO;
+using System.Runtime.InteropServices;
 
 namespace OutlookJunkRescuer
 {
@@ -9,12 +10,118 @@ namespace OutlookJunkRescuer
     {
         private const int CurrentSchemaVersion = 5;
 
+        [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        private static extern bool SetDllDirectory(string lpPathName);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        private static extern IntPtr LoadLibrary(string lpLibFileName);
+
+        private static bool _nativePreloaded;
+        private static readonly object _preloadGate = new object();
+
+        static SqliteStateStore()
+        {
+            PreloadNativeInterop();
+        }
+
+        internal static void PreloadNativeInterop()
+        {
+            if (_nativePreloaded) return;
+            lock (_preloadGate)
+            {
+                if (_nativePreloaded) return;
+                _nativePreloaded = true;
+
+                try
+                {
+                    string arch = Environment.Is64BitProcess ? "x64" : "x86";
+                    Logger.Write($"[SqliteStateStore] Initializing SQLite native interop for architecture: {arch} (Is64BitProcess={Environment.Is64BitProcess})");
+
+                    string addinDir = null;
+                    try
+                    {
+                        string codeBase = typeof(SqliteStateStore).Assembly.CodeBase;
+                        if (!string.IsNullOrEmpty(codeBase))
+                        {
+                            var uri = new Uri(codeBase);
+                            if (uri.IsFile)
+                            {
+                                addinDir = Path.GetDirectoryName(uri.LocalPath);
+                            }
+                        }
+                    }
+                    catch { }
+
+                    if (string.IsNullOrEmpty(addinDir) || !Directory.Exists(addinDir))
+                    {
+                        try
+                        {
+                            addinDir = Path.GetDirectoryName(typeof(SqliteStateStore).Assembly.Location);
+                        }
+                        catch { }
+                    }
+
+                    var searchDirs = new List<string>();
+                    if (!string.IsNullOrEmpty(addinDir) && Directory.Exists(addinDir))
+                    {
+                        searchDirs.Add(Path.Combine(addinDir, arch));
+                        searchDirs.Add(addinDir);
+                    }
+
+                    string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+                    if (!string.IsNullOrEmpty(baseDir) && Directory.Exists(baseDir))
+                    {
+                        searchDirs.Add(Path.Combine(baseDir, arch));
+                        searchDirs.Add(baseDir);
+                    }
+
+                    string foundInterop = null;
+                    foreach (string dir in searchDirs)
+                    {
+                        string testPath = Path.Combine(dir, "SQLite.Interop.dll");
+                        if (File.Exists(testPath))
+                        {
+                            foundInterop = testPath;
+                            break;
+                        }
+                    }
+
+                    if (foundInterop != null)
+                    {
+                        string interopDir = Path.GetDirectoryName(foundInterop);
+                        Environment.SetEnvironmentVariable("SQLite_LibraryPath", interopDir);
+                        SetDllDirectory(interopDir);
+                        IntPtr handle = LoadLibrary(foundInterop);
+                        if (handle != IntPtr.Zero)
+                        {
+                            Logger.Write($"[SqliteStateStore] Successfully preloaded SQLite native interop ({arch}) from: {foundInterop}");
+                        }
+                        else
+                        {
+                            int err = Marshal.GetLastWin32Error();
+                            Logger.Write($"[SqliteStateStore] LoadLibrary returned error {err} for: {foundInterop}");
+                        }
+                    }
+                    else
+                    {
+                        Logger.Write($"[SqliteStateStore] WARNING: SQLite.Interop.dll ({arch}) not found in search paths: {string.Join("; ", searchDirs)}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Logger.Write("[SqliteStateStore] Native interop preloading encountered exception: " + ex);
+                }
+            }
+        }
+
         private readonly SQLiteConnection _connection;
         private readonly object _gate = new object();
         private bool _disposed;
 
         public SqliteStateStore(string databasePath)
         {
+            PreloadNativeInterop();
+
             string directory = Path.GetDirectoryName(databasePath);
             if (string.IsNullOrEmpty(directory))
                 throw new ArgumentException("Database path must be absolute.", nameof(databasePath));

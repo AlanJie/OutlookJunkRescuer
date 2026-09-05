@@ -41,6 +41,8 @@
     <UpdateEnabled>false</UpdateEnabled>
     <BootstrapperEnabled>false</BootstrapperEnabled>
     <PublishWizardCompleted>true</PublishWizardCompleted>
+    <ContentSQLiteInteropFiles>true</ContentSQLiteInteropFiles>
+    <CopySQLiteInteropFiles>true</CopySQLiteInteropFiles>
   </PropertyGroup>
   <ItemGroup>
     <BootstrapperPackage Include="Microsoft.VSTORuntime.4.0">
@@ -231,14 +233,6 @@
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- Include additional build rules for an Office application add-in. -->
   <Import Project="$(VSToolsPath)\OfficeTools\Microsoft.VisualStudio.Tools.Office.targets" Condition="'$(VSToolsPath)' != ''" />
-  <Target Name="CopySQLiteInteropToPublish" AfterTargets="CopyPublishItems">
-    <Copy SourceFiles="$(OutDir)x64\SQLite.Interop.dll"
-          DestinationFiles="$(TemporaryVersionFolderWithPath)\x64\SQLite.Interop.dll.deploy"
-          Condition="Exists('$(OutDir)x64\SQLite.Interop.dll')" />
-    <Copy SourceFiles="$(OutDir)x86\SQLite.Interop.dll"
-          DestinationFiles="$(TemporaryVersionFolderWithPath)\x86\SQLite.Interop.dll.deploy"
-          Condition="Exists('$(OutDir)x86\SQLite.Interop.dll')" />
-  </Target>
   <!-- This section defines VSTO properties that describe the host-changeable project properties. -->
   <ProjectExtensions>
     <VisualStudio>

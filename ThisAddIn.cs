@@ -32,6 +32,8 @@ namespace OutlookJunkRescuer
 
             try
             {
+                Logger.Write($"Add-in startup: Outlook {(Environment.Is64BitProcess ? "64-bit" : "32-bit")}, CLR {Environment.Version}, Location: {typeof(ThisAddIn).Assembly.Location}");
+
                 string statePath = Path.Combine(
                     Environment.GetFolderPath(
                         Environment.SpecialFolder.LocalApplicationData),
@@ -43,7 +45,7 @@ namespace OutlookJunkRescuer
             }
             catch (Exception ex)
             {
-                Logger.Write("Failed to initialize state database: " + ex);
+                Logger.Write("[ThisAddIn] Failed to initialize state database: " + ex);
                 return;
             }
 
