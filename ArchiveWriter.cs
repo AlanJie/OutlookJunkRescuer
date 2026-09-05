@@ -11,7 +11,6 @@ namespace OutlookJunkRescuer
     {
         public const string ArchiveFolderName = "Junk Archive";
         public const string DuplicateTrashFolderName = "OutlookJunkRescuer Duplicate Trash";
-        public const string LegacyDuplicateTrashFolderName = "Duplicate Trash";
 
         public const string PluginIdProperty = "OJRPluginId";
         public const string ArchiveKeyProperty = "OJRArchiveKey";
@@ -93,31 +92,6 @@ namespace OutlookJunkRescuer
                         if (string.Equals(
                             candidate.Name,
                             DuplicateTrashFolderName,
-                            StringComparison.OrdinalIgnoreCase))
-                        {
-                            Outlook.MAPIFolder result = candidate;
-                            candidate = null;
-                            return result;
-                        }
-                    }
-                    finally
-                    {
-                        ComUtil.Release(candidate);
-                    }
-                }
-
-                // Fallback to legacy folder name if it already exists
-                for (int i = 1; i <= folders.Count; i++)
-                {
-                    Outlook.MAPIFolder candidate = null;
-
-                    try
-                    {
-                        candidate = folders[i];
-
-                        if (string.Equals(
-                            candidate.Name,
-                            LegacyDuplicateTrashFolderName,
                             StringComparison.OrdinalIgnoreCase))
                         {
                             Outlook.MAPIFolder result = candidate;

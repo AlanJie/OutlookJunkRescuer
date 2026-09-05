@@ -199,25 +199,27 @@ namespace OutlookJunkRescuer
                 {
                     store = _session.GetStoreFromID(source.StoreId);
                     if (store == null)
-                        return null;
+                        throw new InvalidOperationException($"Unable to resolve store {source.StoreId} to verify folder location.");
 
                     junkFolder = store.GetDefaultFolder(Outlook.OlDefaultFolders.olFolderJunk);
                     if (junkFolder == null)
-                        return null;
+                        throw new InvalidOperationException($"Unable to resolve Junk folder for store {source.StoreId}.");
 
                     parentObj = original.Parent;
                     var parentFolder = parentObj as Outlook.MAPIFolder;
                     if (parentFolder == null)
-                        return null;
+                        throw new InvalidOperationException("Unable to resolve parent folder of the source message.");
 
                     string parentEntryId = parentFolder.EntryID;
                     string junkEntryId = junkFolder.EntryID;
 
-                    if (string.IsNullOrEmpty(parentEntryId) ||
-                        string.IsNullOrEmpty(junkEntryId) ||
-                        !_session.CompareEntryIDs(parentEntryId, junkEntryId))
+                    if (string.IsNullOrEmpty(parentEntryId) || string.IsNullOrEmpty(junkEntryId))
+                        throw new InvalidOperationException("Unable to read EntryID for parent or Junk folder.");
+
+                    // Positive verification: return null only when parent is provably not Junk
+                    if (!_session.CompareEntryIDs(parentEntryId, junkEntryId))
                     {
-                        // Source item has moved out of Junk
+                        // Source item has provably moved out of Junk
                         return null;
                     }
                 }

@@ -417,8 +417,28 @@ namespace OutlookJunkRescuer
                         return;
 
                     case ArchiveState.Archived:
-                    case ArchiveState.SourceGone:
                         skipped++;
+                        return;
+
+                    case ArchiveState.SourceGone:
+                        if (candidates == null || candidates.Count == 0)
+                        {
+                            skipped++;
+                            return;
+                        }
+
+                        // Reappeared in Junk: revive from SourceGone back to Pending and process
+                        Logger.Write($"[{accountSmtp}] SearchKey {searchKeyHex} previously marked SourceGone has reappeared in Junk; reviving to Pending.");
+                        SourceMessageDescriptor reviveSource = ChooseReadOnlySource(candidates, state);
+                        state = _state.ReviveSourceGone(reviveSource);
+
+                        ProcessPending(
+                            candidates,
+                            reviveSource,
+                            state,
+                            archive,
+                            ref archived,
+                            ref recovered);
                         return;
 
                     default:

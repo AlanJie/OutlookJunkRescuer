@@ -394,6 +394,28 @@ namespace OutlookJunkRescuer
                                 try
                                 {
                                     moved = loserItem.Move(targetFolder) as Outlook.MailItem;
+
+                                    // TOCTOU 铁律后置验证：确保移动后 Winner 依然健在
+                                    if (!ValidateOwnedCopy(winnerItem, archiveFolder, winnerCopy, group.ArchiveKey))
+                                    {
+                                        Logger.Write($"[DuplicateCleaner] Winner 副本在移动 loser 后意外丢失，立即将副本 {loserCopy.EntryId} 移回 Junk Archive 回滚以坚守 Never-reduce-1->0。");
+                                        try
+                                        {
+                                            if (moved != null)
+                                            {
+                                                Outlook.MailItem rolledBack = moved.Move(archiveFolder) as Outlook.MailItem;
+                                                ComUtil.Release(rolledBack);
+                                            }
+                                        }
+                                        catch (Exception rbEx)
+                                        {
+                                            Logger.Write($"[DuplicateCleaner] 回滚移动失败: {rbEx}");
+                                        }
+
+                                        result.Skipped++;
+                                        break;
+                                    }
+
                                     result.MovedToTrash++;
                                 }
                                 finally
@@ -450,25 +472,18 @@ namespace OutlookJunkRescuer
                 for (int i = count; i >= 1; i--)
                 {
                     object itemObj = null;
-                    Outlook.MailItem mail = null;
                     try
                     {
                         itemObj = items[i];
-                        mail = itemObj as Outlook.MailItem;
+                        var mail = itemObj as Outlook.MailItem;
                         if (mail == null)
                         {
                             skippedUnknownCount++;
                             continue;
                         }
 
-                        // Verify OJR ownership
-                        string pluginId = GetTextProperty(mail, ArchiveWriter.PluginIdProperty);
-                        string archiveKey = GetTextProperty(mail, ArchiveWriter.ArchiveKeyProperty);
-                        string copyId = GetTextProperty(mail, ArchiveWriter.CopyIdProperty);
-
-                        if (!string.Equals(pluginId, ArchiveWriter.PluginIdValue, StringComparison.Ordinal) ||
-                            string.IsNullOrEmpty(archiveKey) ||
-                            string.IsNullOrEmpty(copyId))
+                        // 统一正向验证 OJR 完整所有权标记
+                        if (!ValidateOjrMarkers(mail))
                         {
                             Logger.Write($"[DuplicateCleaner] 隔离目录中发现非 OJR 项目或标记不完整 (Subject={mail.Subject})，保留不予清理。");
                             skippedUnknownCount++;
@@ -486,7 +501,7 @@ namespace OutlookJunkRescuer
                     }
                     finally
                     {
-                        ComUtil.Release(mail);
+                        // mail 仅为 itemObj 的类型转换句柄，只释放一次以避免 COM RCW double-release
                         ComUtil.Release(itemObj);
                     }
                 }
@@ -495,6 +510,60 @@ namespace OutlookJunkRescuer
             {
                 ComUtil.Release(items);
             }
+        }
+
+        /// <summary>
+        /// 统一正向验证 MailItem 是否具有完整、合法的 OJR 所有权标记。
+        /// 必须同时满足：
+        /// 1. OJRPluginId == "OutlookJunkRescuer"
+        /// 2. OJRArchiveKey 非空 (若指定 expectedArchiveKey 则必须匹配)
+        /// 3. OJRCopyId 非空 (若指定 expectedCopyId 则必须匹配)
+        /// 4. OJRReplicaId 非空
+        /// 5. 邮件本身的 PR_SEARCH_KEY 与 OJRArchiveKey 匹配
+        /// </summary>
+        public static bool ValidateOjrMarkers(
+            Outlook.MailItem mail,
+            string expectedArchiveKey = null,
+            string expectedCopyId = null)
+        {
+            if (mail == null)
+                return false;
+
+            // 1. OJRPluginId matches
+            string pluginId = GetTextProperty(mail, ArchiveWriter.PluginIdProperty);
+            if (!string.Equals(pluginId, ArchiveWriter.PluginIdValue, StringComparison.Ordinal))
+                return false;
+
+            // 2. OJRArchiveKey == expected ArchiveKey
+            string archiveKey = GetTextProperty(mail, ArchiveWriter.ArchiveKeyProperty);
+            if (string.IsNullOrEmpty(archiveKey))
+                return false;
+
+            if (!string.IsNullOrEmpty(expectedArchiveKey) &&
+                !string.Equals(archiveKey, expectedArchiveKey, StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            // 3. OJRCopyId == expected CopyId
+            string copyId = GetTextProperty(mail, ArchiveWriter.CopyIdProperty);
+            if (string.IsNullOrEmpty(copyId))
+                return false;
+
+            if (!string.IsNullOrEmpty(expectedCopyId) &&
+                !string.Equals(copyId, expectedCopyId, StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            // 4. OJRReplicaId present
+            string replicaId = GetTextProperty(mail, ArchiveWriter.ReplicaIdProperty);
+            if (string.IsNullOrEmpty(replicaId))
+                return false;
+
+            // 5. PR_SEARCH_KEY == ArchiveKey
+            string actualSearchKey = MapiIdentity.GetSearchKeyHex(mail);
+            if (string.IsNullOrEmpty(actualSearchKey) ||
+                !string.Equals(actualSearchKey, archiveKey, StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            return true;
         }
 
         private bool ValidateOwnedCopy(
@@ -510,27 +579,8 @@ namespace OutlookJunkRescuer
             if (!_ownedCopies.IsInFolder(item, archiveFolder))
                 return false;
 
-            // 2. OJRPluginId matches
-            string pluginId = GetTextProperty(item, ArchiveWriter.PluginIdProperty);
-            if (!string.Equals(pluginId, ArchiveWriter.PluginIdValue, StringComparison.Ordinal))
-                return false;
-
-            // 3. OJRArchiveKey == expected ArchiveKey
-            string archiveKey = GetTextProperty(item, ArchiveWriter.ArchiveKeyProperty);
-            if (!string.Equals(archiveKey, expectedArchiveKey, StringComparison.OrdinalIgnoreCase))
-                return false;
-
-            // 4. OJRCopyId == scanned CopyId
-            string copyId = GetTextProperty(item, ArchiveWriter.CopyIdProperty);
-            if (!string.Equals(copyId, copyInfo.CopyId, StringComparison.OrdinalIgnoreCase))
-                return false;
-
-            // 5. PR_SEARCH_KEY == expected ArchiveKey
-            string actualSearchKey = MapiIdentity.GetSearchKeyHex(item);
-            if (!string.Equals(actualSearchKey, expectedArchiveKey, StringComparison.OrdinalIgnoreCase))
-                return false;
-
-            return true;
+            // 2. 完整校验 5 项所有权标记
+            return ValidateOjrMarkers(item, expectedArchiveKey, copyInfo.CopyId);
         }
 
         private static string GetTextProperty(Outlook.MailItem mail, string name)

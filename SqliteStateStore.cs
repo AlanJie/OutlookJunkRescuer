@@ -318,6 +318,48 @@ WHERE account_smtp = @account_smtp
             }
         }
 
+        public MessageState ReviveSourceGone(SourceMessageDescriptor source)
+        {
+            if (source == null)
+                throw new ArgumentNullException(nameof(source));
+
+            lock (_gate)
+            {
+                ThrowIfDisposed();
+
+                using (var cmd = _connection.CreateCommand())
+                {
+                    cmd.CommandText = @"
+UPDATE message_state
+SET state = @state,
+    operation_id = @operation_id,
+    store_id = @store_id,
+    source_entry_id = @source_entry_id,
+    source_record_key_hex = @source_record_key_hex,
+    working_copy_entry_id = NULL,
+    working_copy_record_key_hex = NULL,
+    updated_utc = @updated_utc
+WHERE account_smtp = @account_smtp 
+  AND search_key_hex = @search_key_hex
+  AND state = @source_gone;";
+
+                    cmd.Parameters.AddWithValue("@state", (int)ArchiveState.Pending);
+                    cmd.Parameters.AddWithValue("@operation_id", Guid.NewGuid().ToString("D"));
+                    cmd.Parameters.AddWithValue("@store_id", source.StoreId);
+                    cmd.Parameters.AddWithValue("@source_entry_id", source.EntryId);
+                    cmd.Parameters.AddWithValue("@source_record_key_hex", source.RecordKeyHex);
+                    cmd.Parameters.AddWithValue("@updated_utc", DateTime.UtcNow.ToString("o"));
+                    cmd.Parameters.AddWithValue("@account_smtp", source.AccountSmtp);
+                    cmd.Parameters.AddWithValue("@search_key_hex", source.SearchKeyHex);
+                    cmd.Parameters.AddWithValue("@source_gone", (int)ArchiveState.SourceGone);
+
+                    cmd.ExecuteNonQuery();
+                }
+
+                return Get(source.AccountSmtp, source.SearchKeyHex);
+            }
+        }
+
         public void RefreshWorkingCopyLocator(
             string accountSmtp,
             string searchKeyHex,
